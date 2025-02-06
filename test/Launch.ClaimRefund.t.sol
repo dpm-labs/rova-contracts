@@ -26,7 +26,9 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         bytes memory signature = _signRequest(abi.encode(request));
 
         vm.startPrank(user1);
-        currency.approve(address(launch), _getCurrencyAmount(request.currencyBps, request.tokenAmount));
+        currency.approve(
+            address(launch), _getCurrencyAmount(request.launchGroupId, request.currency, request.tokenAmount)
+        );
         launch.participate(request, signature);
 
         vm.stopPrank();

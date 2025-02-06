@@ -9,7 +9,11 @@ import {VmSafe} from "forge-std/Vm.sol";
 import {Test} from "forge-std/Test.sol";
 import {Launch} from "../src/Launch.sol";
 import {
-    LaunchGroupSettings, LaunchGroupStatus, ParticipationRequest, CancelParticipationRequest
+    CurrencyConfig,
+    LaunchGroupSettings,
+    LaunchGroupStatus,
+    ParticipationRequest,
+    CancelParticipationRequest
 } from "../src/Types.sol";
 
 contract MockERC20 is ERC20 {
@@ -67,19 +71,32 @@ abstract contract LaunchTestBase is Test, Launch {
         internal
         returns (LaunchGroupSettings memory)
     {
-        vm.startPrank(manager);
+        CurrencyConfig memory currencyConfig = CurrencyConfig({
+            tokenPriceBps: 1 * 10 ** currency.decimals(),
+            minAmount: 500 * 10 ** currency.decimals(),
+            maxAmount: 2000 * 10 ** currency.decimals(),
+            isEnabled: true
+        });
         LaunchGroupSettings memory settings = LaunchGroupSettings({
             finalizesAtParticipation: false,
             maxParticipationsPerUser: 2,
             startsAt: block.timestamp,
             endsAt: block.timestamp + 1 days,
             maxParticipants: type(uint256).max,
-            maxTokenAllocation: 2000 * 10 ** launch.tokenDecimals(),
+            maxTokenAllocation: 10000 * 10 ** launch.tokenDecimals(),
+            maxTokenAllocationPerUser: 5000 * 10 ** launch.tokenDecimals(),
             status: status
         });
-        launch.setLaunchGroupSettings(launchGroupId, settings);
+        vm.startPrank(manager);
+        launch.createLaunchGroup(launchGroupId, address(currency), currencyConfig, settings);
         vm.stopPrank();
         return settings;
+    }
+
+    function _updateLaunchGroupSettings(LaunchGroupSettings memory settings) internal {
+        vm.startPrank(manager);
+        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
+        vm.stopPrank();
     }
 
     function _createParticipationRequest() internal view returns (ParticipationRequest memory) {
@@ -91,7 +108,6 @@ abstract contract LaunchTestBase is Test, Launch {
             userId: testUserId,
             userAddress: user1,
             tokenAmount: 1000 * 10 ** launch.tokenDecimals(),
-            currencyBps: 1 * 10 ** currency.decimals(),
             currency: address(currency),
             requestExpiresAt: block.timestamp + 1 hours
         });
@@ -129,7 +145,6 @@ abstract contract LaunchTestBase is Test, Launch {
                 userId: bytes32(uint256(i + 1)),
                 userAddress: users[i],
                 tokenAmount: 1000 * 10 ** launch.tokenDecimals(),
-                currencyBps: 1 * 10 ** currency.decimals(),
                 currency: address(currency),
                 requestExpiresAt: block.timestamp + 1 hours
             });
@@ -137,7 +152,9 @@ abstract contract LaunchTestBase is Test, Launch {
             bytes memory signature = _signRequest(abi.encode(request));
 
             vm.startPrank(users[i]);
-            currency.approve(address(launch), _getCurrencyAmount(request.currencyBps, request.tokenAmount));
+            currency.approve(
+                address(launch), _getCurrencyAmount(request.launchGroupId, request.currency, request.tokenAmount)
+            );
             launch.participate(request, signature);
             vm.stopPrank();
 
@@ -158,8 +175,13 @@ abstract contract LaunchTestBase is Test, Launch {
         });
     }
 
-    function _getCurrencyAmount(uint256 currencyBps, uint256 tokenAmount) internal view returns (uint256) {
-        return Math.mulDiv(currencyBps, tokenAmount, 10 ** launch.tokenDecimals());
+    function _getCurrencyAmount(bytes32 launchGroupId, address currencyAddress, uint256 tokenAmount)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 tokenPriceBps = launch.getLaunchGroupCurrencyConfig(launchGroupId, currencyAddress).tokenPriceBps;
+        return Math.mulDiv(tokenPriceBps, tokenAmount, 10 ** launch.tokenDecimals());
     }
 
     function _initializeLaunch(address adminAddress, address withdrawalAddress) internal {

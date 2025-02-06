@@ -10,21 +10,33 @@ enum LaunchGroupStatus {
 }
 
 /// @notice Contains the settings of a launch group.
-/// @param finalizesAtParticipation If true, launch group sales will finalize at the participation.
 /// @param startsAt The timestamp at which the launch group participation starts.
 /// @param endsAt The timestamp at which the launch group participation ends.
 /// @param maxParticipants The maximum number of participants in the launch group.
 /// @param maxParticipationsPerUser The maximum number of participations per user.
 /// @param maxTokenAllocation The maximum token allocation for the launch group.
+/// @param finalizesAtParticipation If true, launch group sales will finalize at the participation.
 /// @param status The status of the launch group.
 struct LaunchGroupSettings {
-    bool finalizesAtParticipation;
     uint256 startsAt;
     uint256 endsAt;
     uint256 maxParticipants;
     uint256 maxParticipationsPerUser;
     uint256 maxTokenAllocation;
+    bool finalizesAtParticipation;
     LaunchGroupStatus status;
+}
+
+/// @notice Contains the configuration of a currency for a launch group.
+/// @param tokenPriceBps The price of the sale token in this currency in basis points.
+/// @param minAmount The minimum purchase amount.
+/// @param maxAmount The maximum purchase amount.
+/// @param isEnabled Whether this currency is accepted.
+struct CurrencyConfig {
+    uint256 tokenPriceBps;
+    uint256 minAmount;
+    uint256 maxAmount;
+    bool isEnabled;
 }
 
 /// @notice Contains the information of a participation.
@@ -51,7 +63,6 @@ struct ParticipationInfo {
 /// @param userId The unique identifier of the user.
 /// @param userAddress The address of the user.
 /// @param tokenAmount The amount of tokens the user wants to purchase.
-/// @param currencyBps The currency basis points of the participation.
 /// @param currency The currency of the participation.
 /// @param requestExpiresAt The timestamp at which the request expires.
 struct ParticipationRequest {
@@ -62,7 +73,6 @@ struct ParticipationRequest {
     bytes32 userId;
     address userAddress;
     uint256 tokenAmount;
-    uint256 currencyBps;
     address currency;
     uint256 requestExpiresAt;
 }
@@ -76,7 +86,6 @@ struct ParticipationRequest {
 /// @param userId The unique identifier of the user.
 /// @param userAddress The address of the user.
 /// @param tokenAmount The amount of tokens the user wants to purchase.
-/// @param currencyBps The currency basis points of the participation.
 /// @param currency The currency of the participation.
 /// @param requestExpiresAt The timestamp at which the request expires.
 struct UpdateParticipationRequest {
@@ -88,7 +97,6 @@ struct UpdateParticipationRequest {
     bytes32 userId;
     address userAddress;
     uint256 tokenAmount;
-    uint256 currencyBps;
     address currency;
     uint256 requestExpiresAt;
 }

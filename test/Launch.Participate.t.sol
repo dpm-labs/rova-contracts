@@ -6,7 +6,13 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {Test} from "forge-std/Test.sol";
 import {LaunchTestBase} from "./LaunchTestBase.t.sol";
 import {Launch} from "../src/Launch.sol";
-import {LaunchGroupSettings, LaunchGroupStatus, ParticipationRequest, ParticipationInfo} from "../src/Types.sol";
+import {
+    LaunchGroupSettings,
+    LaunchGroupStatus,
+    ParticipationRequest,
+    ParticipationInfo,
+    CurrencyConfig
+} from "../src/Types.sol";
 
 contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
     function setUp() public {
@@ -22,7 +28,7 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         bytes memory signature = _signRequest(abi.encode(request));
 
         vm.startPrank(user1);
-        uint256 currencyAmount = _getCurrencyAmount(request.currencyBps, request.tokenAmount);
+        uint256 currencyAmount = _getCurrencyAmount(request.launchGroupId, request.currency, request.tokenAmount);
         currency.approve(address(launch), currencyAmount);
 
         // Expect ParticipationRegistered event
@@ -77,7 +83,7 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         bytes memory signature = _signRequest(abi.encode(request));
 
         vm.startPrank(user1);
-        uint256 currencyAmount = _getCurrencyAmount(request.currencyBps, request.tokenAmount);
+        uint256 currencyAmount = _getCurrencyAmount(request.launchGroupId, request.currency, request.tokenAmount);
         currency.approve(address(launch), currencyAmount);
 
         // Expect ParticipationRegistered event
@@ -132,7 +138,7 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         participationIds[1] = "participationId2";
         ParticipationRequest memory request = _createParticipationRequest();
         request.launchGroupId = launchGroupId;
-        uint256 currencyAmount = _getCurrencyAmount(request.currencyBps, request.tokenAmount);
+        uint256 currencyAmount = _getCurrencyAmount(request.launchGroupId, request.currency, request.tokenAmount);
 
         for (uint256 i = 0; i < participationIds.length; i++) {
             // Prepare participation request
@@ -345,6 +351,85 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         launch.participate(request, signature);
     }
 
+    function test_RevertIf_Participate_InvalidRequestCurrencyNotRegistered() public {
+        // Setup launch group
+        _setupLaunchGroup();
+
+        // Prepare participation request
+        ParticipationRequest memory request = _createParticipationRequest();
+        request.currency = address(20);
+        bytes memory signature = _signRequest(abi.encode(request));
+
+        vm.startPrank(user1);
+        vm.expectRevert(InvalidRequest.selector);
+        // Participate
+        launch.participate(request, signature);
+    }
+
+    function test_RevertIf_Participate_InvalidRequestCurrencyNotEnabled() public {
+        // Setup launch group
+        _setupLaunchGroup();
+
+        // Register new currency
+        vm.startPrank(manager);
+        launch.setLaunchGroupCurrency(
+            testLaunchGroupId,
+            address(20),
+            CurrencyConfig({tokenPriceBps: 10000, minAmount: 1, maxAmount: 2, isEnabled: false})
+        );
+        vm.stopPrank();
+
+        // Prepare participation request
+        ParticipationRequest memory request = _createParticipationRequest();
+        request.currency = address(20);
+        bytes memory signature = _signRequest(abi.encode(request));
+
+        vm.startPrank(user1);
+        vm.expectRevert(InvalidRequest.selector);
+        // Participate
+        launch.participate(request, signature);
+    }
+
+    function test_RevertIf_Participate_InvalidRequestCurrencyAmountBelowMin() public {
+        // Setup launch group
+        _setupLaunchGroup();
+        CurrencyConfig memory currencyConfig = launch.getLaunchGroupCurrencyConfig(testLaunchGroupId, address(currency));
+
+        // Prepare participation request
+        ParticipationRequest memory request = _createParticipationRequest();
+        request.tokenAmount = currencyConfig.minAmount - 1;
+        bytes memory signature = _signRequest(abi.encode(request));
+
+        vm.startPrank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                InvalidCurrencyAmount.selector, testLaunchGroupId, address(currency), request.tokenAmount
+            )
+        );
+        // Participate
+        launch.participate(request, signature);
+    }
+
+    function test_RevertIf_Participate_InvalidRequestCurrencyAmountAboveMax() public {
+        // Setup launch group
+        _setupLaunchGroup();
+        CurrencyConfig memory currencyConfig = launch.getLaunchGroupCurrencyConfig(testLaunchGroupId, address(currency));
+
+        // Prepare participation request
+        ParticipationRequest memory request = _createParticipationRequest();
+        request.tokenAmount = currencyConfig.maxAmount + 1;
+        bytes memory signature = _signRequest(abi.encode(request));
+
+        vm.startPrank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                InvalidCurrencyAmount.selector, testLaunchGroupId, address(currency), request.tokenAmount
+            )
+        );
+        // Participate
+        launch.participate(request, signature);
+    }
+
     function test_RevertIf_Participate_ParticipationAlreadyExists() public {
         // Setup launch group
         _setupLaunchGroup();
@@ -354,7 +439,9 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         bytes memory signature = _signRequest(abi.encode(request));
 
         vm.startPrank(user1);
-        currency.approve(address(launch), _getCurrencyAmount(request.currencyBps, request.tokenAmount));
+        currency.approve(
+            address(launch), _getCurrencyAmount(request.launchGroupId, request.currency, request.tokenAmount)
+        );
         // First participation
         launch.participate(request, signature);
 
@@ -380,11 +467,17 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
 
         vm.startPrank(user1);
         // First participation
-        currency.approve(address(launch), _getCurrencyAmount(firstRequest.currencyBps, firstRequest.tokenAmount));
+        currency.approve(
+            address(launch),
+            _getCurrencyAmount(firstRequest.launchGroupId, firstRequest.currency, firstRequest.tokenAmount)
+        );
         launch.participate(firstRequest, firstSignature);
 
         // Second participation
-        currency.approve(address(launch), _getCurrencyAmount(secondRequest.currencyBps, secondRequest.tokenAmount));
+        currency.approve(
+            address(launch),
+            _getCurrencyAmount(secondRequest.launchGroupId, secondRequest.currency, secondRequest.tokenAmount)
+        );
         vm.expectRevert(abi.encodeWithSelector(MaxUserParticipationsReached.selector, testLaunchGroupId, testUserId));
         launch.participate(secondRequest, secondSignature);
     }
@@ -403,7 +496,10 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
 
         // First user participant
         vm.startPrank(user1);
-        currency.approve(address(launch), _getCurrencyAmount(firstRequest.currencyBps, firstRequest.tokenAmount));
+        currency.approve(
+            address(launch),
+            _getCurrencyAmount(firstRequest.launchGroupId, firstRequest.currency, firstRequest.tokenAmount)
+        );
         launch.participate(firstRequest, firstSignature);
         vm.stopPrank();
 
@@ -450,14 +546,10 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
 
         vm.startPrank(user1);
         currency.transfer(user2, currency.balanceOf(user1));
-        currency.approve(address(launch), _getCurrencyAmount(request.currencyBps, request.tokenAmount));
+        uint256 currencyAmount = _getCurrencyAmount(request.launchGroupId, request.currency, request.tokenAmount);
+        currency.approve(address(launch), currencyAmount);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IERC20Errors.ERC20InsufficientBalance.selector,
-                user1,
-                0,
-                _getCurrencyAmount(request.currencyBps, request.tokenAmount)
-            )
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user1, 0, currencyAmount)
         );
         // Participate
         launch.participate(request, signature);

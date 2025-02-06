@@ -14,13 +14,14 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {
+    CancelParticipationRequest,
+    ClaimRefundRequest,
+    CurrencyConfig,
     LaunchGroupSettings,
     LaunchGroupStatus,
-    ParticipationRequest,
-    UpdateParticipationRequest,
-    ClaimRefundRequest,
     ParticipationInfo,
-    CancelParticipationRequest
+    ParticipationRequest,
+    UpdateParticipationRequest
 } from "./Types.sol";
 
 /**
@@ -71,6 +72,9 @@ contract Launch is
     /// @dev This maps (launchGroupId => launchParticipationId => ParticipationInfo)
     mapping(bytes32 => ParticipationInfo) public launchGroupParticipations;
 
+    /// @notice Launch group currencies to the currency config
+    mapping(bytes32 => mapping(address => CurrencyConfig)) internal _launchGroupCurrencies;
+
     /// @notice Total tokens sold for each launch group
     /// @dev This maps (launchGroupId => amount) and is only updated for finalized participations
     EnumerableMap.Bytes32ToUintMap internal _tokensSoldByLaunchGroup;
@@ -91,6 +95,8 @@ contract Launch is
     EnumerableMap.AddressToUintMap internal _withdrawableAmountByCurrency;
 
     error InvalidRequest();
+    error InvalidCurrency(bytes32 launchGroupId, address currency);
+    error InvalidCurrencyAmount(bytes32 launchGroupId, address currency, uint256 currencyAmount);
     error InvalidSignature();
     error InvalidBalances(uint256 expectedBalance, uint256 actualBalance);
     error ExpiredRequest(uint256 requestExpiresAt, uint256 currentTime);
@@ -113,6 +119,9 @@ contract Launch is
 
     /// @notice Event for launch group update
     event LaunchGroupUpdated(bytes32 indexed launchGroupId);
+
+    /// @notice Event for launch group currency update
+    event LaunchGroupCurrencyUpdated(bytes32 indexed launchGroupId, address indexed currency);
 
     /// @notice Event for withdrawal address update
     event WithdrawalAddressUpdated(address indexed withdrawalAddress);
@@ -212,12 +221,11 @@ contract Launch is
         if (!_validateRequestSignature(keccak256(abi.encode(request)), signature)) {
             revert InvalidSignature();
         }
-
+        CurrencyConfig memory currencyConfig = _validateCurrency(request.launchGroupId, request.currency);
         // Do not allow replay of launch participation
         if (launchGroupParticipations[request.launchParticipationId].userId != bytes32(0)) {
             revert ParticipationAlreadyExists(request.launchParticipationId);
         }
-
         LaunchGroupSettings storage settings = launchGroupSettings[request.launchGroupId];
         // Check if max launchGroupParticipations per user is reached
         (, uint256 userNumParticipations) =
@@ -232,8 +240,10 @@ contract Launch is
             }
         }
         // Calculate currency payment amount
-        uint256 currencyAmount = _calculateCurrencyAmount(request.currencyBps, request.tokenAmount);
-
+        uint256 currencyAmount = _calculateCurrencyAmount(currencyConfig.tokenPriceBps, request.tokenAmount);
+        if (currencyAmount < currencyConfig.minAmount || currencyAmount > currencyConfig.maxAmount) {
+            revert InvalidCurrencyAmount(request.launchGroupId, request.currency, currencyAmount);
+        }
         // Update participation info
         ParticipationInfo storage info = launchGroupParticipations[request.launchParticipationId];
         if (settings.finalizesAtParticipation) {
@@ -252,19 +262,14 @@ contract Launch is
         info.tokenAmount = request.tokenAmount;
         info.currencyAmount = currencyAmount;
         info.currency = request.currency;
-
         // Update total deposits for launch group
         (, uint256 currTotalDeposits) = _currencyDepositsByLaunchGroup[request.launchGroupId].tryGet(request.currency);
         _currencyDepositsByLaunchGroup[request.launchGroupId].set(request.currency, currTotalDeposits + currencyAmount);
-
         // Update total launchGroupParticipations for user and launch group
         (, uint256 currUserParticipations) =
             _userParticipationsByLaunchGroup[request.launchGroupId].tryGet(request.userId);
         _userParticipationsByLaunchGroup[request.launchGroupId].set(request.userId, currUserParticipations + 1);
-
-        // Transfer tokens from user
         IERC20(request.currency).safeTransferFrom(msg.sender, address(this), currencyAmount);
-
         emit ParticipationRegistered(
             request.launchGroupId,
             request.launchParticipationId,
@@ -289,8 +294,8 @@ contract Launch is
         if (!_validateRequestSignature(keccak256(abi.encode(request)), signature)) {
             revert InvalidSignature();
         }
-
-        LaunchGroupSettings storage settings = launchGroupSettings[request.launchGroupId];
+        CurrencyConfig memory currencyConfig = _validateCurrency(request.launchGroupId, request.currency);
+        LaunchGroupSettings memory settings = launchGroupSettings[request.launchGroupId];
         ParticipationInfo storage prevInfo = launchGroupParticipations[request.prevLaunchParticipationId];
         if (settings.finalizesAtParticipation || prevInfo.isFinalized) {
             revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.prevLaunchParticipationId);
@@ -300,21 +305,21 @@ contract Launch is
         if (request.currency != prevInfo.currency) {
             revert InvalidRequestCurrency(prevInfo.currency, request.currency);
         }
-
         // Validate user id is the same
         if (request.userId != prevInfo.userId) {
             revert InvalidRequestUserId(prevInfo.userId, request.userId);
         }
-
-        uint256 newCurrencyAmount = _calculateCurrencyAmount(request.currencyBps, request.tokenAmount);
-
+        // Calculate new currency amount
+        uint256 newCurrencyAmount = _calculateCurrencyAmount(currencyConfig.tokenPriceBps, request.tokenAmount);
+        if (newCurrencyAmount < currencyConfig.minAmount || newCurrencyAmount > currencyConfig.maxAmount) {
+            revert InvalidCurrencyAmount(request.launchGroupId, request.currency, newCurrencyAmount);
+        }
         // Update new participation info
         newInfo.currencyAmount = newCurrencyAmount;
         newInfo.currency = request.currency;
         newInfo.userAddress = msg.sender;
         newInfo.userId = request.userId;
         newInfo.tokenAmount = request.tokenAmount;
-
         if (prevInfo.currencyAmount > newCurrencyAmount) {
             // Handle refund if new amount is less than old amount
             uint256 refundCurrencyAmount = prevInfo.currencyAmount - newCurrencyAmount;
@@ -337,7 +342,6 @@ contract Launch is
         }
         prevInfo.currencyAmount = 0;
         prevInfo.tokenAmount = 0;
-
         emit ParticipationUpdated(
             request.launchGroupId,
             request.newLaunchParticipationId,
@@ -362,8 +366,7 @@ contract Launch is
         if (!_validateRequestSignature(keccak256(abi.encode(request)), signature)) {
             revert InvalidSignature();
         }
-
-        LaunchGroupSettings storage settings = launchGroupSettings[request.launchGroupId];
+        LaunchGroupSettings memory settings = launchGroupSettings[request.launchGroupId];
         if (settings.finalizesAtParticipation) {
             revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.launchParticipationId);
         }
@@ -394,7 +397,6 @@ contract Launch is
         // Reset participation info
         info.tokenAmount = 0;
         info.currencyAmount = 0;
-
         emit ParticipationCancelled(
             request.launchGroupId,
             request.launchParticipationId,
@@ -416,17 +418,14 @@ contract Launch is
         _validateRequest(
             request.launchId, request.launchGroupId, request.chainId, request.requestExpiresAt, request.userAddress
         );
-
         if (!_validateRequestSignature(keccak256(abi.encode(request)), signature)) {
             revert InvalidSignature();
         }
-
         ParticipationInfo storage info = launchGroupParticipations[request.launchParticipationId];
         if (request.userId != info.userId) {
             revert InvalidRequestUserId(info.userId, request.userId);
         }
-
-        _processRefund(request.launchGroupId, request.launchParticipationId);
+        _processRefund(request.launchGroupId, request.launchParticipationId, info);
     }
 
     /// @notice Batch process refunds for unfinalized participations
@@ -439,7 +438,8 @@ contract Launch is
         onlyLaunchGroupStatus(launchGroupId, LaunchGroupStatus.COMPLETED)
     {
         for (uint256 i = 0; i < launchParticipationIds.length; i++) {
-            _processRefund(launchGroupId, launchParticipationIds[i]);
+            ParticipationInfo storage info = launchGroupParticipations[launchParticipationIds[i]];
+            _processRefund(launchGroupId, launchParticipationIds[i], info);
         }
     }
 
@@ -489,21 +489,18 @@ contract Launch is
                 );
             }
         }
-
         (, uint256 withdrawableAmount) = _withdrawableAmountByCurrency.tryGet(currency);
         if (withdrawableAmount < amount) {
             revert InvalidBalances(amount, withdrawableAmount);
         }
-
         _withdrawableAmountByCurrency.set(currency, withdrawableAmount - amount);
-
         IERC20(currency).safeTransfer(withdrawalAddress, amount);
         emit Withdrawal(withdrawalAddress, currency, amount);
     }
 
     /// @notice Calculate currency payment amount based on bps and token amount
-    function _calculateCurrencyAmount(uint256 currencyBps, uint256 tokenAmount) internal view returns (uint256) {
-        return Math.mulDiv(currencyBps, tokenAmount, 10 ** tokenDecimals);
+    function _calculateCurrencyAmount(uint256 tokenPriceBps, uint256 tokenAmount) internal view returns (uint256) {
+        return Math.mulDiv(tokenPriceBps, tokenAmount, 10 ** tokenDecimals);
     }
 
     /// @notice Validate request signature
@@ -513,23 +510,21 @@ contract Launch is
         return success;
     }
 
-    function _processRefund(bytes32 launchGroupId, bytes32 launchParticipationId) private {
-        ParticipationInfo storage info = launchGroupParticipations[launchParticipationId];
+    function _processRefund(bytes32 launchGroupId, bytes32 launchParticipationId, ParticipationInfo storage info)
+        private
+    {
         if (info.isFinalized || info.currencyAmount == 0 || info.tokenAmount == 0) {
             revert InvalidRefundRequest(launchParticipationId);
         }
         uint256 refundCurrencyAmount = info.currencyAmount;
         info.tokenAmount = 0;
         info.currencyAmount = 0;
-
         (, uint256 totalCurrencyDeposits) = _currencyDepositsByLaunchGroup[launchGroupId].tryGet(info.currency);
         if (totalCurrencyDeposits < refundCurrencyAmount) {
             revert InvalidBalances(refundCurrencyAmount, totalCurrencyDeposits);
         }
         _currencyDepositsByLaunchGroup[launchGroupId].set(info.currency, totalCurrencyDeposits - refundCurrencyAmount);
-
         IERC20(info.currency).safeTransfer(info.userAddress, refundCurrencyAmount);
-
         emit RefundClaimed(
             launchGroupId, launchParticipationId, info.userId, info.userAddress, refundCurrencyAmount, info.currency
         );
@@ -563,27 +558,79 @@ contract Launch is
         }
     }
 
+    /// @notice Validate currency is enabled for a launch group
+    function _validateCurrency(bytes32 _launchGroupId, address _currency)
+        private
+        view
+        returns (CurrencyConfig memory)
+    {
+        if (!_launchGroupCurrencies[_launchGroupId][_currency].isEnabled) {
+            revert InvalidRequest();
+        }
+        return _launchGroupCurrencies[_launchGroupId][_currency];
+    }
+
+    /// @notice Validate currency config
+    function _validateCurrencyConfig(CurrencyConfig calldata currencyConfig) private pure {
+        if (currencyConfig.tokenPriceBps == 0) {
+            revert InvalidRequest();
+        }
+    }
+
+    /// @notice Create a new launch group
+    function createLaunchGroup(
+        bytes32 launchGroupId,
+        address initialCurrency,
+        CurrencyConfig calldata initialCurrencyConfig,
+        LaunchGroupSettings calldata settings
+    ) external onlyRole(MANAGER_ROLE) {
+        if (_launchGroups.contains(launchGroupId)) {
+            revert InvalidRequest();
+        }
+        _validateCurrencyConfig(initialCurrencyConfig);
+        launchGroupSettings[launchGroupId] = settings;
+        _launchGroupCurrencies[launchGroupId][initialCurrency] = initialCurrencyConfig;
+        _launchGroups.add(launchGroupId);
+        emit LaunchGroupCreated(launchGroupId);
+    }
+
+    /// @notice Set launch group currency config
+    function setLaunchGroupCurrency(bytes32 launchGroupId, address currency, CurrencyConfig calldata currencyConfig)
+        external
+        onlyRole(MANAGER_ROLE)
+    {
+        _validateCurrencyConfig(currencyConfig);
+        _launchGroupCurrencies[launchGroupId][currency] = currencyConfig;
+        emit LaunchGroupCurrencyUpdated(launchGroupId, currency);
+    }
+
+    /// @notice Enable or disable a launch group currency
+    function toggleLaunchGroupCurrencyEnabled(bytes32 launchGroupId, address currency, bool isEnabled)
+        external
+        onlyRole(MANAGER_ROLE)
+    {
+        _launchGroupCurrencies[launchGroupId][currency].isEnabled = isEnabled;
+        emit LaunchGroupCurrencyUpdated(launchGroupId, currency);
+    }
+
     /// @notice Set launch group settings
+    /// @dev The finalizesAtParticipation setting can only be updated before the launch group is active
     function setLaunchGroupSettings(bytes32 launchGroupId, LaunchGroupSettings calldata settings)
         external
         onlyRole(MANAGER_ROLE)
     {
         if (!_launchGroups.contains(launchGroupId)) {
-            launchGroupSettings[launchGroupId] = settings;
-            _launchGroups.add(launchGroupId);
-            emit LaunchGroupCreated(launchGroupId);
-        } else {
-            LaunchGroupSettings storage oldSettings = launchGroupSettings[launchGroupId];
-            // Don't allow updates to finalizesAtParticipation if status is not pending
-            if (
-                oldSettings.status != LaunchGroupStatus.PENDING
-                    && settings.finalizesAtParticipation != oldSettings.finalizesAtParticipation
-            ) {
-                revert InvalidRequest();
-            }
-            launchGroupSettings[launchGroupId] = settings;
-            emit LaunchGroupUpdated(launchGroupId);
+            revert InvalidRequest();
         }
+        LaunchGroupSettings memory prevSettings = launchGroupSettings[launchGroupId];
+        if (
+            prevSettings.status != LaunchGroupStatus.PENDING
+                && settings.finalizesAtParticipation != prevSettings.finalizesAtParticipation
+        ) {
+            revert InvalidRequest();
+        }
+        launchGroupSettings[launchGroupId] = settings;
+        emit LaunchGroupUpdated(launchGroupId);
     }
 
     /// @notice Set launch identifier
@@ -591,8 +638,9 @@ contract Launch is
         launchId = _launchId;
     }
 
+    /// @notice Set launch group status
+    /// @dev Status changes to pending are not allowed since other statuses can involve state changes
     function setLaunchGroupStatus(bytes32 launchGroupId, LaunchGroupStatus status) external onlyRole(MANAGER_ROLE) {
-        // Dont allow changing status to pending
         if (status == LaunchGroupStatus.PENDING) {
             revert InvalidRequest();
         }
@@ -627,6 +675,15 @@ contract Launch is
     /// @notice Get launch group settings for a launch group
     function getLaunchGroupSettings(bytes32 launchGroupId) external view returns (LaunchGroupSettings memory) {
         return launchGroupSettings[launchGroupId];
+    }
+
+    /// @notice Get currency config for a launch group and currency
+    function getLaunchGroupCurrencyConfig(bytes32 launchGroupId, address currency)
+        external
+        view
+        returns (CurrencyConfig memory)
+    {
+        return _launchGroupCurrencies[launchGroupId][currency];
     }
 
     /// @notice Get participation info for a launch participation
