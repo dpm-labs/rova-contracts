@@ -83,6 +83,10 @@ contract Launch is
     /// @dev This maps (launchGroupId => userId => number of participations by this user)
     mapping(bytes32 => EnumerableMap.Bytes32ToUintMap) internal _userParticipationsByLaunchGroup;
 
+    /// @notice Total tokens sold to each user for each launch group
+    /// @dev This maps (launchGroupId => userId => amount)
+    mapping(bytes32 => EnumerableMap.Bytes32ToUintMap) internal _userTokensByLaunchGroup;
+
     /// @notice Total deposits for each launch group by currency
     /// @dev This maps (launchGroupId => payment currency => amount)
     /// @dev The amounts do not reflect amount that can be withdrawn since it contains unfinalized launchGroupParticipations
@@ -102,6 +106,12 @@ contract Launch is
     error ExpiredRequest(uint256 requestExpiresAt, uint256 currentTime);
     error ParticipationAlreadyExists(bytes32 launchParticipationId);
     error MaxTokenAllocationReached(bytes32 launchGroupId);
+    error MinUserTokenAllocationNotReached(
+        bytes32 launchGroupId, bytes32 userId, uint256 currTokenAmount, uint256 requestedTokenAmount
+    );
+    error MaxUserTokenAllocationReached(
+        bytes32 launchGroupId, bytes32 userId, uint256 currTokenAmount, uint256 requestedTokenAmount
+    );
     error MaxParticipantsReached(bytes32 launchGroupId);
     error MaxUserParticipationsReached(bytes32 launchGroupId, bytes32 userId);
     error InvalidRequestCurrency(address prevCurrency, address newCurrency);
@@ -239,29 +249,39 @@ contract Launch is
                 revert MaxParticipantsReached(request.launchGroupId);
             }
         }
+        // Validate user allocation
+        (, uint256 userTokenAmount) = _userTokensByLaunchGroup[request.launchGroupId].tryGet(request.userId);
+        if (userTokenAmount + request.tokenAmount > settings.maxTokenAmountPerUser) {
+            revert MaxUserTokenAllocationReached(
+                request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
+            );
+        }
+        if (userTokenAmount + request.tokenAmount < settings.minTokenAmountPerUser) {
+            revert MinUserTokenAllocationNotReached(
+                request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
+            );
+        }
         // Calculate currency payment amount
         uint256 currencyAmount = _calculateCurrencyAmount(currencyConfig.tokenPriceBps, request.tokenAmount);
-        if (currencyAmount < currencyConfig.minAmount || currencyAmount > currencyConfig.maxAmount) {
-            revert InvalidCurrencyAmount(request.launchGroupId, request.currency, currencyAmount);
-        }
         // Update participation info
         ParticipationInfo storage info = launchGroupParticipations[request.launchParticipationId];
         if (settings.finalizesAtParticipation) {
-            info.isFinalized = true;
-            // Validate available token allocation
             (, uint256 currTotalTokensSold) = _tokensSoldByLaunchGroup.tryGet(request.launchGroupId);
-            if (currTotalTokensSold + request.tokenAmount > settings.maxTokenAllocation) {
+            if (settings.maxTokenAllocation < currTotalTokensSold + request.tokenAmount) {
                 revert MaxTokenAllocationReached(request.launchGroupId);
             }
-            _tokensSoldByLaunchGroup.set(request.launchGroupId, currTotalTokensSold + request.tokenAmount);
             (, uint256 withdrawableAmount) = _withdrawableAmountByCurrency.tryGet(request.currency);
             _withdrawableAmountByCurrency.set(request.currency, withdrawableAmount + currencyAmount);
+            info.isFinalized = true;
+            _tokensSoldByLaunchGroup.set(request.launchGroupId, currTotalTokensSold + request.tokenAmount);
         }
         info.userAddress = msg.sender;
         info.userId = request.userId;
         info.tokenAmount = request.tokenAmount;
         info.currencyAmount = currencyAmount;
         info.currency = request.currency;
+        // Update user token amount
+        _userTokensByLaunchGroup[request.launchGroupId].set(request.userId, userTokenAmount + request.tokenAmount);
         // Update total deposits for launch group
         (, uint256 currTotalDeposits) = _currencyDepositsByLaunchGroup[request.launchGroupId].tryGet(request.currency);
         _currencyDepositsByLaunchGroup[request.launchGroupId].set(request.currency, currTotalDeposits + currencyAmount);
@@ -311,22 +331,20 @@ contract Launch is
         }
         // Calculate new currency amount
         uint256 newCurrencyAmount = _calculateCurrencyAmount(currencyConfig.tokenPriceBps, request.tokenAmount);
-        if (newCurrencyAmount < currencyConfig.minAmount || newCurrencyAmount > currencyConfig.maxAmount) {
-            revert InvalidCurrencyAmount(request.launchGroupId, request.currency, newCurrencyAmount);
-        }
-        // Update new participation info
-        newInfo.currencyAmount = newCurrencyAmount;
-        newInfo.currency = request.currency;
-        newInfo.userAddress = msg.sender;
-        newInfo.userId = request.userId;
-        newInfo.tokenAmount = request.tokenAmount;
+        (, uint256 userTokenAmount) = _userTokensByLaunchGroup[request.launchGroupId].tryGet(request.userId);
         if (prevInfo.currencyAmount > newCurrencyAmount) {
             // Handle refund if new amount is less than old amount
             uint256 refundCurrencyAmount = prevInfo.currencyAmount - newCurrencyAmount;
+            if (userTokenAmount - refundCurrencyAmount < settings.minTokenAmountPerUser) {
+                revert MinUserTokenAllocationNotReached(
+                    request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
+                );
+            }
             uint256 totalCurrencyDeposits = _currencyDepositsByLaunchGroup[request.launchGroupId].get(request.currency);
             if (totalCurrencyDeposits < refundCurrencyAmount) {
                 revert InvalidBalances(refundCurrencyAmount, totalCurrencyDeposits);
             }
+            _userTokensByLaunchGroup[request.launchGroupId].set(request.userId, userTokenAmount - refundCurrencyAmount);
             _currencyDepositsByLaunchGroup[request.launchGroupId].set(
                 request.currency, totalCurrencyDeposits - refundCurrencyAmount
             );
@@ -334,12 +352,25 @@ contract Launch is
         } else if (newCurrencyAmount > prevInfo.currencyAmount) {
             // Take additional payment if new amount is greater than old amount
             uint256 additionalCurrencyAmount = newCurrencyAmount - prevInfo.currencyAmount;
+            if (userTokenAmount + additionalCurrencyAmount > settings.maxTokenAmountPerUser) {
+                revert MaxUserTokenAllocationReached(
+                    request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
+                );
+            }
+            _userTokensByLaunchGroup[request.launchGroupId].set(
+                request.userId, userTokenAmount + additionalCurrencyAmount
+            );
             (, uint256 totalDeposits) = _currencyDepositsByLaunchGroup[request.launchGroupId].tryGet(request.currency);
             _currencyDepositsByLaunchGroup[request.launchGroupId].set(
                 request.currency, totalDeposits + additionalCurrencyAmount
             );
             IERC20(request.currency).safeTransferFrom(msg.sender, address(this), additionalCurrencyAmount);
         }
+        newInfo.currencyAmount = newCurrencyAmount;
+        newInfo.currency = request.currency;
+        newInfo.userAddress = msg.sender;
+        newInfo.userId = request.userId;
+        newInfo.tokenAmount = request.tokenAmount;
         prevInfo.currencyAmount = 0;
         prevInfo.tokenAmount = 0;
         emit ParticipationUpdated(
@@ -378,7 +409,14 @@ contract Launch is
         if (request.userId != info.userId) {
             revert InvalidRequestUserId(info.userId, request.userId);
         }
-
+        (, uint256 userTokenAmount) = _userTokensByLaunchGroup[request.launchGroupId].tryGet(request.userId);
+        if (userTokenAmount - info.tokenAmount == 0) {
+            _userTokensByLaunchGroup[request.launchGroupId].remove(request.userId);
+        } else if (userTokenAmount - info.tokenAmount < settings.minTokenAmountPerUser) {
+            revert MinUserTokenAllocationNotReached(
+                request.launchGroupId, request.userId, userTokenAmount, info.tokenAmount
+            );
+        }
         uint256 refundCurrencyAmount = info.currencyAmount;
         (, uint256 totalCurrencyDeposits) = _currencyDepositsByLaunchGroup[request.launchGroupId].tryGet(info.currency);
         if (totalCurrencyDeposits < refundCurrencyAmount) {
@@ -387,13 +425,14 @@ contract Launch is
         _currencyDepositsByLaunchGroup[request.launchGroupId].set(
             info.currency, totalCurrencyDeposits - refundCurrencyAmount
         );
-
         (, uint256 numUserParticipations) = _userParticipationsByLaunchGroup[request.launchGroupId].tryGet(info.userId);
-        _userParticipationsByLaunchGroup[request.launchGroupId].set(info.userId, numUserParticipations - 1);
-
+        if (numUserParticipations == 1) {
+            _userParticipationsByLaunchGroup[request.launchGroupId].remove(info.userId);
+        } else {
+            _userParticipationsByLaunchGroup[request.launchGroupId].set(info.userId, numUserParticipations - 1);
+        }
         // Refund currency to user
         IERC20(info.currency).safeTransfer(info.userAddress, refundCurrencyAmount);
-
         // Reset participation info
         info.tokenAmount = 0;
         info.currencyAmount = 0;
@@ -455,27 +494,23 @@ contract Launch is
         if (settings.finalizesAtParticipation) {
             revert LaunchGroupFinalizesAtParticipation(launchGroupId);
         }
-
-        uint256 additionalTokensSold = 0;
-        (, uint256 currTotalTokensSold) = _tokensSoldByLaunchGroup.tryGet(launchGroupId);
+        (, uint256 totalTokensSold) = _tokensSoldByLaunchGroup.tryGet(launchGroupId);
+        uint256 currTotalTokensSold = totalTokensSold;
         for (uint256 i = 0; i < winnerLaunchParticipationIds.length; i++) {
             ParticipationInfo storage info = launchGroupParticipations[winnerLaunchParticipationIds[i]];
             if (info.tokenAmount == 0 || info.isFinalized || info.currencyAmount == 0) {
                 revert InvalidWinner(winnerLaunchParticipationIds[i]);
             }
-
-            additionalTokensSold += info.tokenAmount;
-            if (settings.maxTokenAllocation < currTotalTokensSold + additionalTokensSold) {
+            if (settings.maxTokenAllocation < currTotalTokensSold + info.tokenAmount) {
                 revert MaxTokenAllocationReached(launchGroupId);
             }
-
-            info.isFinalized = true;
             (, uint256 withdrawableAmount) = _withdrawableAmountByCurrency.tryGet(info.currency);
             _withdrawableAmountByCurrency.set(info.currency, withdrawableAmount + info.currencyAmount);
-
+            info.isFinalized = true;
+            currTotalTokensSold += info.tokenAmount;
             emit WinnerSelected(launchGroupId, winnerLaunchParticipationIds[i], info.userId, info.userAddress);
         }
-        _tokensSoldByLaunchGroup.set(launchGroupId, currTotalTokensSold + additionalTokensSold);
+        _tokensSoldByLaunchGroup.set(launchGroupId, currTotalTokensSold);
     }
 
     /// @notice Withdraw funds for currency
@@ -516,6 +551,8 @@ contract Launch is
         if (info.isFinalized || info.currencyAmount == 0 || info.tokenAmount == 0) {
             revert InvalidRefundRequest(launchParticipationId);
         }
+        (, uint256 userTokenAmount) = _userTokensByLaunchGroup[launchGroupId].tryGet(info.userId);
+        _userTokensByLaunchGroup[launchGroupId].set(info.userId, userTokenAmount - info.tokenAmount);
         uint256 refundCurrencyAmount = info.currencyAmount;
         info.tokenAmount = 0;
         info.currencyAmount = 0;
@@ -729,6 +766,12 @@ contract Launch is
     /// @notice Get total tokens sold for a launch group
     function getTokensSoldByLaunchGroup(bytes32 launchGroupId) external view returns (uint256) {
         (, uint256 tokensSold) = _tokensSoldByLaunchGroup.tryGet(launchGroupId);
+        return tokensSold;
+    }
+
+    /// @notice Get total tokens sold for a user in a launch group
+    function getUserTokensByLaunchGroup(bytes32 launchGroupId, bytes32 userId) external view returns (uint256) {
+        (, uint256 tokensSold) = _userTokensByLaunchGroup[launchGroupId].tryGet(userId);
         return tokensSold;
     }
 

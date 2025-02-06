@@ -14,6 +14,8 @@ enum LaunchGroupStatus {
 /// @param endsAt The timestamp at which the launch group participation ends.
 /// @param maxParticipants The maximum number of participants in the launch group.
 /// @param maxParticipationsPerUser The maximum number of participations per user.
+/// @param minTokenAmountPerUser The minimum token allocation per user.
+/// @param maxTokenAmountPerUser The maximum token allocation per user.
 /// @param maxTokenAllocation The maximum token allocation for the launch group.
 /// @param finalizesAtParticipation If true, launch group sales will finalize at the participation.
 /// @param status The status of the launch group.
@@ -22,6 +24,8 @@ struct LaunchGroupSettings {
     uint256 endsAt;
     uint256 maxParticipants;
     uint256 maxParticipationsPerUser;
+    uint256 minTokenAmountPerUser;
+    uint256 maxTokenAmountPerUser;
     uint256 maxTokenAllocation;
     bool finalizesAtParticipation;
     LaunchGroupStatus status;
@@ -29,13 +33,9 @@ struct LaunchGroupSettings {
 
 /// @notice Contains the configuration of a currency for a launch group.
 /// @param tokenPriceBps The price of the sale token in this currency in basis points.
-/// @param minAmount The minimum purchase amount.
-/// @param maxAmount The maximum purchase amount.
 /// @param isEnabled Whether this currency is accepted.
 struct CurrencyConfig {
     uint256 tokenPriceBps;
-    uint256 minAmount;
-    uint256 maxAmount;
     bool isEnabled;
 }
 

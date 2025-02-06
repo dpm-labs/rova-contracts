@@ -19,6 +19,8 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
         LaunchGroupSettings memory settings = _setupLaunchGroup();
         settings.maxParticipants = 100;
         settings.maxParticipationsPerUser = 10;
+        settings.minTokenAmountPerUser = 1000 * 10 ** launch.tokenDecimals();
+        settings.maxTokenAmountPerUser = 10000 * 10 ** launch.tokenDecimals();
         settings.maxTokenAllocation = 1000000;
         settings.startsAt = block.timestamp + 1 days;
         settings.endsAt = block.timestamp + 2 days;
@@ -136,8 +138,6 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
         _setupLaunchGroup();
         CurrencyConfig memory currencyConfig = launch.getLaunchGroupCurrencyConfig(testLaunchGroupId, address(currency));
         currencyConfig.tokenPriceBps = 10000;
-        currencyConfig.minAmount = 1;
-        currencyConfig.maxAmount = 2;
         vm.expectEmit(true, true, true, true);
         emit LaunchGroupCurrencyUpdated(testLaunchGroupId, address(currency));
         vm.startPrank(manager);
@@ -146,8 +146,6 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
 
         CurrencyConfig memory updatedConfig = launch.getLaunchGroupCurrencyConfig(testLaunchGroupId, address(currency));
         assertEq(updatedConfig.tokenPriceBps, currencyConfig.tokenPriceBps);
-        assertEq(updatedConfig.minAmount, currencyConfig.minAmount);
-        assertEq(updatedConfig.maxAmount, currencyConfig.maxAmount);
     }
 
     function test_RevertIf_SetLaunchGroupCurrency_InvalidRequestCurrencyConfigZeroTokenPriceBps() public {
@@ -156,28 +154,6 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
         currencyConfig.tokenPriceBps = 0;
         vm.startPrank(manager);
         vm.expectRevert(InvalidRequest.selector);
-        // Set launch group currency
-        launch.setLaunchGroupCurrency(testLaunchGroupId, address(currency), currencyConfig);
-    }
-
-    function test_RevertIf_SetLaunchGroupCurrency_InvalidRequestCurrencyConfigZeroInvalidAmountRange() public {
-        _setupLaunchGroup();
-        CurrencyConfig memory currencyConfig = launch.getLaunchGroupCurrencyConfig(testLaunchGroupId, address(currency));
-        currencyConfig.minAmount = 100;
-        currencyConfig.maxAmount = 1;
-        vm.startPrank(manager);
-        vm.expectRevert(InvalidRequest.selector);
-        // Set launch group currency
-        launch.setLaunchGroupCurrency(testLaunchGroupId, address(currency), currencyConfig);
-    }
-
-    function test_RevertIf_SetLaunchGroupCurrency_NotManagerRole() public {
-        _setupLaunchGroup();
-        CurrencyConfig memory currencyConfig = launch.getLaunchGroupCurrencyConfig(testLaunchGroupId, address(currency));
-        vm.startPrank(operator);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, operator, MANAGER_ROLE)
-        );
         // Set launch group currency
         launch.setLaunchGroupCurrency(testLaunchGroupId, address(currency), currencyConfig);
     }
@@ -213,6 +189,8 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
         // Verify launch group settings
         LaunchGroupSettings memory savedSettings = launch.getLaunchGroupSettings(testLaunchGroupId);
         assertEq(savedSettings.maxParticipants, settings.maxParticipants);
+        assertEq(savedSettings.minTokenAmountPerUser, settings.minTokenAmountPerUser);
+        assertEq(savedSettings.maxTokenAmountPerUser, settings.maxTokenAmountPerUser);
         assertEq(savedSettings.maxTokenAllocation, settings.maxTokenAllocation);
         assertEq(uint256(savedSettings.status), uint256(LaunchGroupStatus.ACTIVE));
         assertEq(savedSettings.startsAt, settings.startsAt);

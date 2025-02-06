@@ -71,12 +71,8 @@ abstract contract LaunchTestBase is Test, Launch {
         internal
         returns (LaunchGroupSettings memory)
     {
-        CurrencyConfig memory currencyConfig = CurrencyConfig({
-            tokenPriceBps: 1 * 10 ** currency.decimals(),
-            minAmount: 500 * 10 ** currency.decimals(),
-            maxAmount: 2000 * 10 ** currency.decimals(),
-            isEnabled: true
-        });
+        CurrencyConfig memory currencyConfig =
+            CurrencyConfig({tokenPriceBps: 1 * 10 ** currency.decimals(), isEnabled: true});
         LaunchGroupSettings memory settings = LaunchGroupSettings({
             finalizesAtParticipation: false,
             maxParticipationsPerUser: 2,
@@ -84,7 +80,8 @@ abstract contract LaunchTestBase is Test, Launch {
             endsAt: block.timestamp + 1 days,
             maxParticipants: type(uint256).max,
             maxTokenAllocation: 10000 * 10 ** launch.tokenDecimals(),
-            maxTokenAllocationPerUser: 5000 * 10 ** launch.tokenDecimals(),
+            minTokenAmountPerUser: 500 * 10 ** launch.tokenDecimals(),
+            maxTokenAmountPerUser: 3000 * 10 ** launch.tokenDecimals(),
             status: status
         });
         vm.startPrank(manager);

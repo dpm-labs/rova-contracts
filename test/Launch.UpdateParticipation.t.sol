@@ -17,20 +17,26 @@ import {
 
 contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
     LaunchGroupSettings public settings;
+    ParticipationRequest public originalParticipationRequest;
 
     function setUp() public {
         _setUpLaunch();
 
         // Setup initial participation
         settings = _setupLaunchGroup();
-        ParticipationRequest memory request = _createParticipationRequest();
-        bytes memory signature = _signRequest(abi.encode(request));
+        originalParticipationRequest = _createParticipationRequest();
+        bytes memory signature = _signRequest(abi.encode(originalParticipationRequest));
 
         vm.startPrank(user1);
         currency.approve(
-            address(launch), _getCurrencyAmount(request.launchGroupId, request.currency, request.tokenAmount)
+            address(launch),
+            _getCurrencyAmount(
+                originalParticipationRequest.launchGroupId,
+                originalParticipationRequest.currency,
+                originalParticipationRequest.tokenAmount
+            )
         );
-        launch.participate(request, signature);
+        launch.participate(originalParticipationRequest, signature);
 
         vm.stopPrank();
     }
@@ -314,9 +320,7 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
         // Register new currency
         vm.startPrank(manager);
         launch.setLaunchGroupCurrency(
-            testLaunchGroupId,
-            address(20),
-            CurrencyConfig({tokenPriceBps: 10000, minAmount: 1, maxAmount: 2, isEnabled: false})
+            testLaunchGroupId, address(20), CurrencyConfig({tokenPriceBps: 10000, isEnabled: false})
         );
         vm.stopPrank();
 
@@ -331,49 +335,11 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
         launch.updateParticipation(request, signature);
     }
 
-    function test_RevertIf_UpdateParticipation_InvalidRequestCurrencyAmountBelowMin() public {
-        CurrencyConfig memory currencyConfig = launch.getLaunchGroupCurrencyConfig(testLaunchGroupId, address(currency));
-
-        // Prepare update participation request
-        UpdateParticipationRequest memory request = _createUpdateParticipationRequest(1000);
-        request.tokenAmount = currencyConfig.minAmount - 1;
-        bytes memory signature = _signRequest(abi.encode(request));
-
-        vm.startPrank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                InvalidCurrencyAmount.selector, testLaunchGroupId, address(currency), request.tokenAmount
-            )
-        );
-        // Update participation
-        launch.updateParticipation(request, signature);
-    }
-
-    function test_RevertIf_UpdateParticipation_InvalidRequestCurrencyAmountAboveMax() public {
-        CurrencyConfig memory currencyConfig = launch.getLaunchGroupCurrencyConfig(testLaunchGroupId, address(currency));
-
-        // Prepare update participation request
-        UpdateParticipationRequest memory request = _createUpdateParticipationRequest(1000);
-        request.tokenAmount = currencyConfig.maxAmount + 1;
-        bytes memory signature = _signRequest(abi.encode(request));
-
-        vm.startPrank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                InvalidCurrencyAmount.selector, testLaunchGroupId, address(currency), request.tokenAmount
-            )
-        );
-        // Update participation
-        launch.updateParticipation(request, signature);
-    }
-
     function test_RevertIf_UpdateParticipation_InvalidRequestDifferentCurrency() public {
         // Register new currency
         vm.startPrank(manager);
         launch.setLaunchGroupCurrency(
-            testLaunchGroupId,
-            address(20),
-            CurrencyConfig({tokenPriceBps: 10000, minAmount: 1, maxAmount: 2, isEnabled: true})
+            testLaunchGroupId, address(20), CurrencyConfig({tokenPriceBps: 10000, isEnabled: true})
         );
         vm.stopPrank();
 
@@ -398,6 +364,58 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
 
         vm.startPrank(user1);
         vm.expectRevert(abi.encodeWithSelector(InvalidRequestUserId.selector, testUserId, request.userId));
+        // Update participation
+        launch.updateParticipation(request, signature);
+    }
+
+    function test_RevertIf_UpdateParticipation_MinUserTokenAllocationReached() public {
+        // Setup launch group
+        uint256 normalizedTokenAmount = 1000;
+        vm.startPrank(manager);
+        settings.minTokenAmountPerUser = normalizedTokenAmount * 10 ** launch.tokenDecimals();
+        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
+        vm.stopPrank();
+
+        // Prepare update participation request
+        UpdateParticipationRequest memory request = _createUpdateParticipationRequest(normalizedTokenAmount - 1);
+        bytes memory signature = _signRequest(abi.encode(request));
+
+        vm.startPrank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MinUserTokenAllocationNotReached.selector,
+                testLaunchGroupId,
+                testUserId,
+                originalParticipationRequest.tokenAmount,
+                request.tokenAmount
+            )
+        );
+        // Update participation
+        launch.updateParticipation(request, signature);
+    }
+
+    function test_RevertIf_UpdateParticipation_MaxUserTokenAllocationReached() public {
+        // Setup launch group
+        uint256 normalizedTokenAmount = 1000;
+        vm.startPrank(manager);
+        settings.maxTokenAmountPerUser = normalizedTokenAmount * 10 ** launch.tokenDecimals();
+        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
+        vm.stopPrank();
+
+        // Prepare update participation request
+        UpdateParticipationRequest memory request = _createUpdateParticipationRequest(normalizedTokenAmount + 1);
+        bytes memory signature = _signRequest(abi.encode(request));
+
+        vm.startPrank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MaxUserTokenAllocationReached.selector,
+                testLaunchGroupId,
+                testUserId,
+                originalParticipationRequest.tokenAmount,
+                request.tokenAmount
+            )
+        );
         // Update participation
         launch.updateParticipation(request, signature);
     }

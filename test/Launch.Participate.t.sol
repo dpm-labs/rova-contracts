@@ -64,6 +64,9 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         // Verify total withdrawable amount
         assertEq(launch.getWithdrawableAmountByCurrency(address(currency)), 0);
 
+        // Verify user tokens
+        assertEq(launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId), request.tokenAmount);
+
         vm.stopPrank();
     }
 
@@ -118,6 +121,9 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
 
         // Verify total withdrawable amount
         assertEq(launch.getWithdrawableAmountByCurrency(address(currency)), currencyAmount);
+
+        // Verify user tokens
+        assertEq(launch.getUserTokensByLaunchGroup(request.launchGroupId, testUserId), request.tokenAmount);
 
         vm.stopPrank();
     }
@@ -186,6 +192,9 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
 
         // Verify total withdrawable amount
         assertEq(launch.getWithdrawableAmountByCurrency(address(currency)), currencyAmount * 2);
+
+        // Verify user tokens
+        assertEq(launch.getUserTokensByLaunchGroup(request.launchGroupId, testUserId), request.tokenAmount * 2);
 
         vm.stopPrank();
     }
@@ -373,9 +382,7 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         // Register new currency
         vm.startPrank(manager);
         launch.setLaunchGroupCurrency(
-            testLaunchGroupId,
-            address(20),
-            CurrencyConfig({tokenPriceBps: 10000, minAmount: 1, maxAmount: 2, isEnabled: false})
+            testLaunchGroupId, address(20), CurrencyConfig({tokenPriceBps: 10000, isEnabled: false})
         );
         vm.stopPrank();
 
@@ -386,46 +393,6 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
 
         vm.startPrank(user1);
         vm.expectRevert(InvalidRequest.selector);
-        // Participate
-        launch.participate(request, signature);
-    }
-
-    function test_RevertIf_Participate_InvalidRequestCurrencyAmountBelowMin() public {
-        // Setup launch group
-        _setupLaunchGroup();
-        CurrencyConfig memory currencyConfig = launch.getLaunchGroupCurrencyConfig(testLaunchGroupId, address(currency));
-
-        // Prepare participation request
-        ParticipationRequest memory request = _createParticipationRequest();
-        request.tokenAmount = currencyConfig.minAmount - 1;
-        bytes memory signature = _signRequest(abi.encode(request));
-
-        vm.startPrank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                InvalidCurrencyAmount.selector, testLaunchGroupId, address(currency), request.tokenAmount
-            )
-        );
-        // Participate
-        launch.participate(request, signature);
-    }
-
-    function test_RevertIf_Participate_InvalidRequestCurrencyAmountAboveMax() public {
-        // Setup launch group
-        _setupLaunchGroup();
-        CurrencyConfig memory currencyConfig = launch.getLaunchGroupCurrencyConfig(testLaunchGroupId, address(currency));
-
-        // Prepare participation request
-        ParticipationRequest memory request = _createParticipationRequest();
-        request.tokenAmount = currencyConfig.maxAmount + 1;
-        bytes memory signature = _signRequest(abi.encode(request));
-
-        vm.startPrank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                InvalidCurrencyAmount.selector, testLaunchGroupId, address(currency), request.tokenAmount
-            )
-        );
         // Participate
         launch.participate(request, signature);
     }
@@ -511,6 +478,91 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         secondRequest.launchParticipationId = "differentLaunchParticipationId";
         bytes memory secondSignature = _signRequest(abi.encode(secondRequest));
         vm.expectRevert(abi.encodeWithSelector(MaxParticipantsReached.selector, testLaunchGroupId));
+        launch.participate(secondRequest, secondSignature);
+    }
+
+    function test_RevertIf_Participate_MinUserTokenAllocationReached() public {
+        // Setup launch group
+        LaunchGroupSettings memory settings = _setupLaunchGroup();
+        vm.startPrank(manager);
+        settings.minTokenAmountPerUser = 1000 * 10 ** launch.tokenDecimals();
+        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
+        vm.stopPrank();
+
+        // Prepare participation request
+        ParticipationRequest memory request = _createParticipationRequest();
+        request.tokenAmount = settings.minTokenAmountPerUser - 1;
+        bytes memory signature = _signRequest(abi.encode(request));
+
+        vm.startPrank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MinUserTokenAllocationNotReached.selector, testLaunchGroupId, testUserId, 0, request.tokenAmount
+            )
+        );
+        // Participate
+        launch.participate(request, signature);
+    }
+
+    function test_RevertIf_Participate_MaxUserTokenAllocationReachedSingleParticipation() public {
+        // Setup launch group
+        LaunchGroupSettings memory settings = _setupLaunchGroup();
+        vm.startPrank(manager);
+        settings.maxTokenAmountPerUser = 1000 * 10 ** launch.tokenDecimals();
+        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
+        vm.stopPrank();
+
+        // Prepare participation request
+        ParticipationRequest memory request = _createParticipationRequest();
+        request.tokenAmount = settings.maxTokenAmountPerUser + 1;
+        bytes memory signature = _signRequest(abi.encode(request));
+
+        vm.startPrank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MaxUserTokenAllocationReached.selector, testLaunchGroupId, testUserId, 0, request.tokenAmount
+            )
+        );
+        // Participate
+        launch.participate(request, signature);
+    }
+
+    function test_RevertIf_Participate_MaxUserTokenAllocationReachedMultipleParticipation() public {
+        ParticipationRequest memory request = _createParticipationRequest();
+
+        // Setup launch group
+        LaunchGroupSettings memory settings = _setupLaunchGroup();
+        vm.startPrank(manager);
+        settings.maxTokenAmountPerUser = request.tokenAmount;
+        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
+        vm.stopPrank();
+
+        // Prepare participation request
+        request.tokenAmount = settings.maxTokenAmountPerUser;
+        bytes memory signature = _signRequest(abi.encode(request));
+
+        vm.startPrank(user1);
+        currency.approve(
+            address(launch), _getCurrencyAmount(request.launchGroupId, request.currency, request.tokenAmount)
+        );
+        // Participate
+        launch.participate(request, signature);
+
+        assertEq(launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId), request.tokenAmount);
+
+        // Second participation
+        ParticipationRequest memory secondRequest = _createParticipationRequest();
+        secondRequest.launchParticipationId = "differentLaunchParticipationId";
+        bytes memory secondSignature = _signRequest(abi.encode(secondRequest));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MaxUserTokenAllocationReached.selector,
+                testLaunchGroupId,
+                testUserId,
+                request.tokenAmount,
+                secondRequest.tokenAmount
+            )
+        );
         launch.participate(secondRequest, secondSignature);
     }
 

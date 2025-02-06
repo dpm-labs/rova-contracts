@@ -43,6 +43,7 @@ contract LaunchCancelParticipationTest is Test, Launch, LaunchTestBase {
         assertEq(info.currencyAmount, 1000 * 10 ** 18);
         uint256 totalCurrencyDeposits = launch.getDepositsByCurrency(testLaunchGroupId, address(currency));
         uint256 numUserParticipations = launch.getNumParticipationsByUser(testLaunchGroupId, testUserId);
+        uint256 initialUserTokenAmount = launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId);
         uint256 startingBalance = currency.balanceOf(user1);
 
         vm.startPrank(user1);
@@ -60,6 +61,7 @@ contract LaunchCancelParticipationTest is Test, Launch, LaunchTestBase {
 
         // Update participation
         launch.cancelParticipation(cancelRequest, cancelSignature);
+        vm.stopPrank();
 
         // Verify update
         ParticipationInfo memory newInfo = launch.getParticipationInfo(cancelRequest.launchParticipationId);
@@ -74,8 +76,12 @@ contract LaunchCancelParticipationTest is Test, Launch, LaunchTestBase {
 
         // Verify user participations
         assertEq(launch.getNumParticipationsByUser(testLaunchGroupId, testUserId), numUserParticipations - 1);
+        // Verify user balance
         assertEq(currency.balanceOf(user1), startingBalance + info.currencyAmount);
-        vm.stopPrank();
+
+        // Verify user tokens
+        uint256 userTokenAmount = launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId);
+        assertEq(userTokenAmount, initialUserTokenAmount - info.tokenAmount);
     }
 
     function test_RevertIf_CancelParticipation_LaunchPaused() public {
