@@ -51,11 +51,11 @@ contract Launch is
     /// @notice Signer role for generating signatures to be verified by the contract
     bytes32 public constant SIGNER_ROLE = keccak256("SIGNER_ROLE");
 
+    /// @notice Launch identifier
+    bytes32 public launchId;
+
     /// @notice Address for withdrawing funds
     address public withdrawalAddress;
-
-    /// @notice Launch identifiers
-    bytes32 public launchId;
 
     /// @notice Decimals for the launch token
     /// @dev This is used to calculate currency payment amount conversions
@@ -68,23 +68,21 @@ contract Launch is
     /// @dev This maps (launchGroupId => LaunchGroupSettings)
     mapping(bytes32 => LaunchGroupSettings) public launchGroupSettings;
 
-    /// @notice Participation information for each launch group
-    /// @dev This maps (launchGroupId => launchParticipationId => ParticipationInfo)
+    /// @notice User participation information for each launch group
+    /// @dev This maps (launchParticipationId => ParticipationInfo)
     mapping(bytes32 => ParticipationInfo) public launchGroupParticipations;
 
-    /// @notice Launch group currencies to the currency config
+    /// @notice Launch group accepted payment currencies to their config
     mapping(bytes32 => mapping(address => CurrencyConfig)) internal _launchGroupCurrencies;
 
     /// @notice Total tokens sold for each launch group
-    /// @dev This maps (launchGroupId => amount) and is only updated for finalized participations
+    /// @dev This maps (launchGroupId => amount) and only tracks finalized participations
+    /// @dev This is used to make sure the total token allocation for each launch group is not exceeded
     EnumerableMap.Bytes32ToUintMap internal _tokensSoldByLaunchGroup;
 
-    /// @notice List of participants for each launch group
-    /// @dev This maps (launchGroupId => userId => number of participations by this user)
-    mapping(bytes32 => EnumerableMap.Bytes32ToUintMap) internal _userParticipationsByLaunchGroup;
-
-    /// @notice Total tokens sold to each user for each launch group
+    /// @notice Total tokens requested per user for each launch group
     /// @dev This maps (launchGroupId => userId => amount)
+    /// @dev This is used to make sure users are within the min/max token per user allocation for each launch group
     mapping(bytes32 => EnumerableMap.Bytes32ToUintMap) internal _userTokensByLaunchGroup;
 
     /// @notice Total deposits for each launch group by currency
@@ -112,7 +110,6 @@ contract Launch is
     error MaxUserTokenAllocationReached(
         bytes32 launchGroupId, bytes32 userId, uint256 currTokenAmount, uint256 requestedTokenAmount
     );
-    error MaxParticipantsReached(bytes32 launchGroupId);
     error MaxUserParticipationsReached(bytes32 launchGroupId, bytes32 userId);
     error InvalidRequestCurrency(address prevCurrency, address newCurrency);
     error InvalidRequestUserId(bytes32 prevUserId, bytes32 newUserId);
@@ -218,6 +215,8 @@ contract Launch is
     }
 
     /// @notice Participate in a launch group
+    /// @dev If finalizesAtParticipation is false, users cannot resubmit another participation
+    /// @dev and should perform updates instead
     function participate(ParticipationRequest calldata request, bytes calldata signature)
         external
         nonReentrant
@@ -232,25 +231,16 @@ contract Launch is
             revert InvalidSignature();
         }
         CurrencyConfig memory currencyConfig = _validateCurrency(request.launchGroupId, request.currency);
-        // Do not allow replay of launch participation
+        // Do not allow replay of launch participation ID
         if (launchGroupParticipations[request.launchParticipationId].userId != bytes32(0)) {
             revert ParticipationAlreadyExists(request.launchParticipationId);
         }
         LaunchGroupSettings storage settings = launchGroupSettings[request.launchGroupId];
-        // Check if max launchGroupParticipations per user is reached
-        (, uint256 userNumParticipations) =
-            _userParticipationsByLaunchGroup[request.launchGroupId].tryGet(request.userId);
-        if (userNumParticipations >= settings.maxParticipationsPerUser) {
-            revert MaxUserParticipationsReached(request.launchGroupId, request.userId);
-        } else if (userNumParticipations == 0) {
-            // Check if max participants for launch group is reached
-            uint256 currTotalParticipants = _userParticipationsByLaunchGroup[request.launchGroupId].length();
-            if (currTotalParticipants >= settings.maxParticipants) {
-                revert MaxParticipantsReached(request.launchGroupId);
-            }
-        }
         // Validate user allocation
         (, uint256 userTokenAmount) = _userTokensByLaunchGroup[request.launchGroupId].tryGet(request.userId);
+        if (!settings.finalizesAtParticipation && userTokenAmount > 0) {
+            revert MaxUserParticipationsReached(request.launchGroupId, request.userId);
+        }
         if (userTokenAmount + request.tokenAmount > settings.maxTokenAmountPerUser) {
             revert MaxUserTokenAllocationReached(
                 request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
@@ -285,10 +275,6 @@ contract Launch is
         // Update total deposits for launch group
         (, uint256 currTotalDeposits) = _currencyDepositsByLaunchGroup[request.launchGroupId].tryGet(request.currency);
         _currencyDepositsByLaunchGroup[request.launchGroupId].set(request.currency, currTotalDeposits + currencyAmount);
-        // Update total launchGroupParticipations for user and launch group
-        (, uint256 currUserParticipations) =
-            _userParticipationsByLaunchGroup[request.launchGroupId].tryGet(request.userId);
-        _userParticipationsByLaunchGroup[request.launchGroupId].set(request.userId, currUserParticipations + 1);
         IERC20(request.currency).safeTransferFrom(msg.sender, address(this), currencyAmount);
         emit ParticipationRegistered(
             request.launchGroupId,
@@ -416,6 +402,8 @@ contract Launch is
             revert MinUserTokenAllocationNotReached(
                 request.launchGroupId, request.userId, userTokenAmount, info.tokenAmount
             );
+        } else {
+            _userTokensByLaunchGroup[request.launchGroupId].set(request.userId, userTokenAmount - info.tokenAmount);
         }
         uint256 refundCurrencyAmount = info.currencyAmount;
         (, uint256 totalCurrencyDeposits) = _currencyDepositsByLaunchGroup[request.launchGroupId].tryGet(info.currency);
@@ -425,12 +413,6 @@ contract Launch is
         _currencyDepositsByLaunchGroup[request.launchGroupId].set(
             info.currency, totalCurrencyDeposits - refundCurrencyAmount
         );
-        (, uint256 numUserParticipations) = _userParticipationsByLaunchGroup[request.launchGroupId].tryGet(info.userId);
-        if (numUserParticipations == 1) {
-            _userParticipationsByLaunchGroup[request.launchGroupId].remove(info.userId);
-        } else {
-            _userParticipationsByLaunchGroup[request.launchGroupId].set(info.userId, numUserParticipations - 1);
-        }
         // Refund currency to user
         IERC20(info.currency).safeTransfer(info.userAddress, refundCurrencyAmount);
         // Reset participation info
@@ -699,11 +681,6 @@ contract Launch is
         return _launchGroups.values();
     }
 
-    /// @notice Get total number of launch groups
-    function getTotalLaunchGroups() external view returns (uint256) {
-        return _launchGroups.length();
-    }
-
     /// @notice Get launch group status for a launch group
     function getLaunchGroupStatus(bytes32 launchGroupId) external view returns (LaunchGroupStatus) {
         return launchGroupSettings[launchGroupId].status;
@@ -731,19 +708,13 @@ contract Launch is
     /// @notice Get all user ids for a launch group
     /// @dev This should not be called by other state-changing functions to avoid gas issues
     function getLaunchGroupParticipantUserIds(bytes32 launchGroupId) external view returns (bytes32[] memory) {
-        return _userParticipationsByLaunchGroup[launchGroupId].keys();
+        return _userTokensByLaunchGroup[launchGroupId].keys();
     }
 
     /// @notice Get total number of unique participants for a launch group
-    /// @dev Note that this is based on user identifier rather than user address
+    /// @dev This is based on user identifier rather than user address since users can use multiple addresses to fund
     function getNumUniqueParticipantsByLaunchGroup(bytes32 launchGroupId) external view returns (uint256) {
-        return _userParticipationsByLaunchGroup[launchGroupId].length();
-    }
-
-    /// @notice Get number of participations for a user in a launch group
-    function getNumParticipationsByUser(bytes32 launchGroupId, bytes32 userId) external view returns (uint256) {
-        (, uint256 count) = _userParticipationsByLaunchGroup[launchGroupId].tryGet(userId);
-        return count;
+        return _userTokensByLaunchGroup[launchGroupId].length();
     }
 
     /// @notice Get withdrawable amount for a currency

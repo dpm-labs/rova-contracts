@@ -55,9 +55,6 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         // Verify total unique participants by launch group
         assertEq(launch.getNumUniqueParticipantsByLaunchGroup(testLaunchGroupId), 1);
 
-        // Verify total participations by user for the launch group
-        assertEq(launch.getNumParticipationsByUser(testLaunchGroupId, testUserId), 1);
-
         // Verify total tokens sold
         assertEq(launch.getTokensSoldByLaunchGroup(testLaunchGroupId), 0);
 
@@ -112,9 +109,6 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
 
         // Verify total unique participants by launch group
         assertEq(launch.getNumUniqueParticipantsByLaunchGroup(request.launchGroupId), 1);
-
-        // Verify total participations by user for the launch group
-        assertEq(launch.getNumParticipationsByUser(request.launchGroupId, testUserId), 1);
 
         // Verify total tokens sold
         assertEq(launch.getTokensSoldByLaunchGroup(request.launchGroupId), request.tokenAmount);
@@ -183,9 +177,6 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
 
         // Verify total unique participants by launch group
         assertEq(launch.getNumUniqueParticipantsByLaunchGroup(request.launchGroupId), 1);
-
-        // Verify total participations by user for the launch group
-        assertEq(launch.getNumParticipationsByUser(request.launchGroupId, testUserId), 2);
 
         // Verify total tokens sold
         assertEq(launch.getTokensSoldByLaunchGroup(request.launchGroupId), request.tokenAmount * 2);
@@ -419,11 +410,7 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
 
     function test_RevertIf_Participate_MaxUserParticipationsReached() public {
         // Setup launch group
-        LaunchGroupSettings memory settings = _setupLaunchGroup();
-        vm.startPrank(manager);
-        settings.maxParticipationsPerUser = 1;
-        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
-        vm.stopPrank();
+        _setupLaunchGroup();
 
         // Prepare participation requests
         ParticipationRequest memory firstRequest = _createParticipationRequest();
@@ -446,38 +433,6 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
             _getCurrencyAmount(secondRequest.launchGroupId, secondRequest.currency, secondRequest.tokenAmount)
         );
         vm.expectRevert(abi.encodeWithSelector(MaxUserParticipationsReached.selector, testLaunchGroupId, testUserId));
-        launch.participate(secondRequest, secondSignature);
-    }
-
-    function test_RevertIf_Participate_MaxParticipantsReached() public {
-        // Setup launch group
-        LaunchGroupSettings memory settings = _setupLaunchGroup();
-        vm.startPrank(manager);
-        settings.maxParticipants = 1;
-        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
-        vm.stopPrank();
-
-        // Prepare participation requests
-        ParticipationRequest memory firstRequest = _createParticipationRequest();
-        bytes memory firstSignature = _signRequest(abi.encode(firstRequest));
-
-        // First user participant
-        vm.startPrank(user1);
-        currency.approve(
-            address(launch),
-            _getCurrencyAmount(firstRequest.launchGroupId, firstRequest.currency, firstRequest.tokenAmount)
-        );
-        launch.participate(firstRequest, firstSignature);
-        vm.stopPrank();
-
-        // Second user participant
-        vm.startPrank(user2);
-        ParticipationRequest memory secondRequest = _createParticipationRequest();
-        secondRequest.userId = "differentUserId";
-        secondRequest.userAddress = user2;
-        secondRequest.launchParticipationId = "differentLaunchParticipationId";
-        bytes memory secondSignature = _signRequest(abi.encode(secondRequest));
-        vm.expectRevert(abi.encodeWithSelector(MaxParticipantsReached.selector, testLaunchGroupId));
         launch.participate(secondRequest, secondSignature);
     }
 
@@ -531,13 +486,17 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         ParticipationRequest memory request = _createParticipationRequest();
 
         // Setup launch group
-        LaunchGroupSettings memory settings = _setupLaunchGroup();
+        bytes32 launchGroupId = bytes32(uint256(1));
+        LaunchGroupSettings memory settings = _setupLaunchGroupWithStatus(launchGroupId, LaunchGroupStatus.PENDING);
         vm.startPrank(manager);
+        settings.finalizesAtParticipation = true;
         settings.maxTokenAmountPerUser = request.tokenAmount;
-        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
+        settings.status = LaunchGroupStatus.ACTIVE;
+        launch.setLaunchGroupSettings(launchGroupId, settings);
         vm.stopPrank();
 
         // Prepare participation request
+        request.launchGroupId = launchGroupId;
         request.tokenAmount = settings.maxTokenAmountPerUser;
         bytes memory signature = _signRequest(abi.encode(request));
 
@@ -548,16 +507,17 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         // Participate
         launch.participate(request, signature);
 
-        assertEq(launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId), request.tokenAmount);
+        assertEq(launch.getUserTokensByLaunchGroup(launchGroupId, testUserId), request.tokenAmount);
 
         // Second participation
         ParticipationRequest memory secondRequest = _createParticipationRequest();
+        secondRequest.launchGroupId = launchGroupId;
         secondRequest.launchParticipationId = "differentLaunchParticipationId";
         bytes memory secondSignature = _signRequest(abi.encode(secondRequest));
         vm.expectRevert(
             abi.encodeWithSelector(
                 MaxUserTokenAllocationReached.selector,
-                testLaunchGroupId,
+                launchGroupId,
                 testUserId,
                 request.tokenAmount,
                 secondRequest.tokenAmount

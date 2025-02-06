@@ -17,8 +17,6 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
      */
     function test_SetLaunchGroupSettings() public {
         LaunchGroupSettings memory settings = _setupLaunchGroup();
-        settings.maxParticipants = 100;
-        settings.maxParticipationsPerUser = 10;
         settings.minTokenAmountPerUser = 1000 * 10 ** launch.tokenDecimals();
         settings.maxTokenAmountPerUser = 10000 * 10 ** launch.tokenDecimals();
         settings.maxTokenAllocation = 1000000;
@@ -188,7 +186,6 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
     function _verifyLaunchGroupSettings(LaunchGroupSettings memory settings) public view {
         // Verify launch group settings
         LaunchGroupSettings memory savedSettings = launch.getLaunchGroupSettings(testLaunchGroupId);
-        assertEq(savedSettings.maxParticipants, settings.maxParticipants);
         assertEq(savedSettings.minTokenAmountPerUser, settings.minTokenAmountPerUser);
         assertEq(savedSettings.maxTokenAmountPerUser, settings.maxTokenAmountPerUser);
         assertEq(savedSettings.maxTokenAllocation, settings.maxTokenAllocation);

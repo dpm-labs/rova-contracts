@@ -75,10 +75,8 @@ abstract contract LaunchTestBase is Test, Launch {
             CurrencyConfig({tokenPriceBps: 1 * 10 ** currency.decimals(), isEnabled: true});
         LaunchGroupSettings memory settings = LaunchGroupSettings({
             finalizesAtParticipation: false,
-            maxParticipationsPerUser: 2,
             startsAt: block.timestamp,
             endsAt: block.timestamp + 1 days,
-            maxParticipants: type(uint256).max,
             maxTokenAllocation: 10000 * 10 ** launch.tokenDecimals(),
             minTokenAmountPerUser: 500 * 10 ** launch.tokenDecimals(),
             maxTokenAmountPerUser: 3000 * 10 ** launch.tokenDecimals(),
