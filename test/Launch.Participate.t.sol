@@ -49,9 +49,6 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         assertEq(info.currency, address(currency));
         assertEq(info.isFinalized, false);
 
-        // Verify total deposits
-        assertEq(launch.getDepositsByCurrency(testLaunchGroupId, address(currency)), currencyAmount);
-
         // Verify total unique participants by launch group
         assertEq(launch.getNumUniqueParticipantsByLaunchGroup(testLaunchGroupId), 1);
 
@@ -103,9 +100,6 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         assertEq(info.currencyAmount, currencyAmount);
         assertEq(info.currency, address(currency));
         assertEq(info.isFinalized, true);
-
-        // Verify total deposits
-        assertEq(launch.getDepositsByCurrency(request.launchGroupId, address(currency)), currencyAmount);
 
         // Verify total unique participants by launch group
         assertEq(launch.getNumUniqueParticipantsByLaunchGroup(request.launchGroupId), 1);
@@ -171,9 +165,6 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
             assertEq(info.currency, address(currency));
             assertEq(info.isFinalized, true);
         }
-
-        // Verify total deposits
-        assertEq(launch.getDepositsByCurrency(request.launchGroupId, address(currency)), currencyAmount * 2);
 
         // Verify total unique participants by launch group
         assertEq(launch.getNumUniqueParticipantsByLaunchGroup(request.launchGroupId), 1);

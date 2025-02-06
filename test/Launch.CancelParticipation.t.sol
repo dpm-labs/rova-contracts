@@ -41,7 +41,6 @@ contract LaunchCancelParticipationTest is Test, Launch, LaunchTestBase {
         ParticipationInfo memory info = launch.getParticipationInfo(cancelRequest.launchParticipationId);
         assertEq(info.tokenAmount, 1000 * 10 ** 18);
         assertEq(info.currencyAmount, 1000 * 10 ** 18);
-        uint256 totalCurrencyDeposits = launch.getDepositsByCurrency(testLaunchGroupId, address(currency));
         uint256 initialUserTokenAmount = launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId);
         uint256 startingBalance = currency.balanceOf(user1);
 
@@ -66,12 +65,6 @@ contract LaunchCancelParticipationTest is Test, Launch, LaunchTestBase {
         ParticipationInfo memory newInfo = launch.getParticipationInfo(cancelRequest.launchParticipationId);
         assertEq(newInfo.tokenAmount, 0);
         assertEq(newInfo.currencyAmount, 0);
-
-        // Verify total deposits
-        assertEq(
-            launch.getDepositsByCurrency(testLaunchGroupId, address(currency)),
-            totalCurrencyDeposits - info.currencyAmount
-        );
 
         // Verify user balance
         assertEq(currency.balanceOf(user1), startingBalance + info.currencyAmount);

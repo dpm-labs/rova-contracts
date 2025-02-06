@@ -42,7 +42,6 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     function test_ClaimRefund() public {
         ParticipationInfo memory initialInfo = launch.getParticipationInfo(testLaunchParticipationId);
         uint256 initialCurrencyBalance = currency.balanceOf(user1);
-        uint256 initialTotalCurrencyDeposits = launch.getDepositsByCurrency(testLaunchGroupId, initialInfo.currency);
         uint256 initialUserTokenAmount = launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId);
         vm.startPrank(user1);
 
@@ -71,10 +70,6 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         assertEq(newInfo.tokenAmount, 0);
         assertEq(newInfo.currencyAmount, 0);
         assertEq(currency.balanceOf(user1), initialCurrencyBalance + initialInfo.currencyAmount);
-
-        // Verify total deposits
-        uint256 totalCurrencyDeposits = launch.getDepositsByCurrency(testLaunchGroupId, initialInfo.currency);
-        assertEq(totalCurrencyDeposits, initialTotalCurrencyDeposits - initialInfo.currencyAmount);
 
         // Verify user tokens
         uint256 userTokenAmount = launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId);

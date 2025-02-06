@@ -114,12 +114,12 @@ contract LaunchWithdrawTest is Test, Launch, LaunchTestBase, IERC20Events {
         launch.withdraw(address(currency), 1);
     }
 
-    function test_RevertIf_Withdraw_InvalidBalancesWithdrawableAmount() public {
+    function test_RevertIf_Withdraw_InvalidWithdrawalAmount() public {
         uint256 withdrawableAmount = launch.getWithdrawableAmountByCurrency(address(currency));
         uint256 withdrawAmount = withdrawableAmount + 1;
 
         vm.startPrank(testWithdrawalAddress);
-        vm.expectRevert(abi.encodeWithSelector(InvalidBalances.selector, withdrawAmount, withdrawableAmount));
+        vm.expectRevert(abi.encodeWithSelector(InvalidWithdrawalAmount.selector, withdrawAmount, withdrawableAmount));
         // Withdraw
         launch.withdraw(address(currency), withdrawAmount);
     }

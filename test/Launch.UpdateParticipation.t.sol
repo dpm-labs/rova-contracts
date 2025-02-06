@@ -72,9 +72,6 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
         assertEq(oldInfo.currencyAmount, 0);
         assertEq(oldInfo.tokenAmount, 0);
 
-        // Verify total deposits
-        assertEq(launch.getDepositsByCurrency(testLaunchGroupId, address(currency)), updatedCurrencyAmount);
-
         // Verify total unique participants by launch group
         assertEq(launch.getNumUniqueParticipantsByLaunchGroup(testLaunchGroupId), 1);
 
@@ -109,12 +106,6 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
         ParticipationInfo memory oldInfo = launch.getParticipationInfo(updateRequest.prevLaunchParticipationId);
         assertEq(oldInfo.currencyAmount, 0);
         assertEq(oldInfo.tokenAmount, 0);
-
-        // Verify total deposits
-        assertEq(
-            launch.getDepositsByCurrency(testLaunchGroupId, address(currency)),
-            _getCurrencyAmount(updateRequest.launchGroupId, updateRequest.currency, updateRequest.tokenAmount)
-        );
 
         // Verify refund
         assertEq(currency.balanceOf(user1), initialCurrencyBalance + 500 * 10 ** launch.tokenDecimals());

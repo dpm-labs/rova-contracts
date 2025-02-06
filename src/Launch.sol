@@ -85,13 +85,6 @@ contract Launch is
     /// @dev This is used to make sure users are within the min/max token per user allocation for each launch group
     mapping(bytes32 => EnumerableMap.Bytes32ToUintMap) internal _userTokensByLaunchGroup;
 
-    /// @notice Total deposits for each launch group by currency
-    /// @dev This maps (launchGroupId => payment currency => amount)
-    /// @dev The amounts do not reflect amount that can be withdrawn since it contains unfinalized launchGroupParticipations
-    /// @dev This is not updated when funds are withdrawn, so it can be used to refund amount paid by users for finalized + unrefunded participations
-    /// @dev Once all refunds are done, it should reflect total deposits for finalized participations
-    mapping(bytes32 => EnumerableMap.AddressToUintMap) internal _currencyDepositsByLaunchGroup;
-
     /// @notice Total finalized deposits for each launch group by currency
     /// @dev This maps (payment currency => amount) and keeps track of the total amount that can be withdrawn to the withdrawal address
     EnumerableMap.AddressToUintMap internal _withdrawableAmountByCurrency;
@@ -100,7 +93,6 @@ contract Launch is
     error InvalidCurrency(bytes32 launchGroupId, address currency);
     error InvalidCurrencyAmount(bytes32 launchGroupId, address currency, uint256 currencyAmount);
     error InvalidSignature();
-    error InvalidBalances(uint256 expectedBalance, uint256 actualBalance);
     error ExpiredRequest(uint256 requestExpiresAt, uint256 currentTime);
     error ParticipationAlreadyExists(bytes32 launchParticipationId);
     error MaxTokenAllocationReached(bytes32 launchGroupId);
@@ -120,6 +112,7 @@ contract Launch is
     error InvalidRefundRequest(bytes32 launchParticipationId);
     error LaunchGroupFinalizesAtParticipation(bytes32 launchGroupId);
     error InvalidWinner(bytes32 launchParticipationId);
+    error InvalidWithdrawalAmount(uint256 expectedBalance, uint256 actualBalance);
 
     /// @notice Event for launch group creation
     event LaunchGroupCreated(bytes32 indexed launchGroupId);
@@ -272,9 +265,6 @@ contract Launch is
         info.currency = request.currency;
         // Update user token amount
         _userTokensByLaunchGroup[request.launchGroupId].set(request.userId, userTokenAmount + request.tokenAmount);
-        // Update total deposits for launch group
-        (, uint256 currTotalDeposits) = _currencyDepositsByLaunchGroup[request.launchGroupId].tryGet(request.currency);
-        _currencyDepositsByLaunchGroup[request.launchGroupId].set(request.currency, currTotalDeposits + currencyAmount);
         IERC20(request.currency).safeTransferFrom(msg.sender, address(this), currencyAmount);
         emit ParticipationRegistered(
             request.launchGroupId,
@@ -326,14 +316,7 @@ contract Launch is
                     request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
                 );
             }
-            uint256 totalCurrencyDeposits = _currencyDepositsByLaunchGroup[request.launchGroupId].get(request.currency);
-            if (totalCurrencyDeposits < refundCurrencyAmount) {
-                revert InvalidBalances(refundCurrencyAmount, totalCurrencyDeposits);
-            }
             _userTokensByLaunchGroup[request.launchGroupId].set(request.userId, userTokenAmount - refundCurrencyAmount);
-            _currencyDepositsByLaunchGroup[request.launchGroupId].set(
-                request.currency, totalCurrencyDeposits - refundCurrencyAmount
-            );
             IERC20(request.currency).safeTransfer(msg.sender, refundCurrencyAmount);
         } else if (newCurrencyAmount > prevInfo.currencyAmount) {
             // Take additional payment if new amount is greater than old amount
@@ -345,10 +328,6 @@ contract Launch is
             }
             _userTokensByLaunchGroup[request.launchGroupId].set(
                 request.userId, userTokenAmount + additionalCurrencyAmount
-            );
-            (, uint256 totalDeposits) = _currencyDepositsByLaunchGroup[request.launchGroupId].tryGet(request.currency);
-            _currencyDepositsByLaunchGroup[request.launchGroupId].set(
-                request.currency, totalDeposits + additionalCurrencyAmount
             );
             IERC20(request.currency).safeTransferFrom(msg.sender, address(this), additionalCurrencyAmount);
         }
@@ -406,13 +385,6 @@ contract Launch is
             _userTokensByLaunchGroup[request.launchGroupId].set(request.userId, userTokenAmount - info.tokenAmount);
         }
         uint256 refundCurrencyAmount = info.currencyAmount;
-        (, uint256 totalCurrencyDeposits) = _currencyDepositsByLaunchGroup[request.launchGroupId].tryGet(info.currency);
-        if (totalCurrencyDeposits < refundCurrencyAmount) {
-            revert InvalidBalances(refundCurrencyAmount, totalCurrencyDeposits);
-        }
-        _currencyDepositsByLaunchGroup[request.launchGroupId].set(
-            info.currency, totalCurrencyDeposits - refundCurrencyAmount
-        );
         // Refund currency to user
         IERC20(info.currency).safeTransfer(info.userAddress, refundCurrencyAmount);
         // Reset participation info
@@ -508,7 +480,7 @@ contract Launch is
         }
         (, uint256 withdrawableAmount) = _withdrawableAmountByCurrency.tryGet(currency);
         if (withdrawableAmount < amount) {
-            revert InvalidBalances(amount, withdrawableAmount);
+            revert InvalidWithdrawalAmount(amount, withdrawableAmount);
         }
         _withdrawableAmountByCurrency.set(currency, withdrawableAmount - amount);
         IERC20(currency).safeTransfer(withdrawalAddress, amount);
@@ -538,11 +510,6 @@ contract Launch is
         uint256 refundCurrencyAmount = info.currencyAmount;
         info.tokenAmount = 0;
         info.currencyAmount = 0;
-        (, uint256 totalCurrencyDeposits) = _currencyDepositsByLaunchGroup[launchGroupId].tryGet(info.currency);
-        if (totalCurrencyDeposits < refundCurrencyAmount) {
-            revert InvalidBalances(refundCurrencyAmount, totalCurrencyDeposits);
-        }
-        _currencyDepositsByLaunchGroup[launchGroupId].set(info.currency, totalCurrencyDeposits - refundCurrencyAmount);
         IERC20(info.currency).safeTransfer(info.userAddress, refundCurrencyAmount);
         emit RefundClaimed(
             launchGroupId, launchParticipationId, info.userId, info.userAddress, refundCurrencyAmount, info.currency
@@ -721,17 +688,6 @@ contract Launch is
     function getWithdrawableAmountByCurrency(address currency) external view returns (uint256) {
         (, uint256 amount) = _withdrawableAmountByCurrency.tryGet(currency);
         return amount;
-    }
-
-    /// @notice Get all currencies with deposits for a launch group
-    function getCurrenciesWithDeposits(bytes32 launchGroupId) external view returns (address[] memory) {
-        return _currencyDepositsByLaunchGroup[launchGroupId].keys();
-    }
-
-    /// @notice Get total deposits for a currency for a launch group
-    function getDepositsByCurrency(bytes32 launchGroupId, address currency) external view returns (uint256) {
-        (, uint256 deposits) = _currencyDepositsByLaunchGroup[launchGroupId].tryGet(currency);
-        return deposits;
     }
 
     /// @notice Get total tokens sold for a launch group

@@ -50,7 +50,6 @@ contract LaunchBatchRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         ParticipationInfo memory initialInfo2 = launch.getParticipationInfo(requests[1].launchParticipationId);
         uint256 initialCurrencyBalance = currency.balanceOf(requests[0].userAddress);
         uint256 initialCurrencyBalance2 = currency.balanceOf(requests[1].userAddress);
-        uint256 initialTotalCurrencyDeposits = launch.getDepositsByCurrency(testLaunchGroupId, address(currency));
 
         // Verify RefundClaimed and Transfer events
         vm.expectEmit(true, true, true, true);
@@ -79,8 +78,6 @@ contract LaunchBatchRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         assertEq(newInfo2.currencyAmount, initialInfo2.currencyAmount);
         assertEq(currency.balanceOf(requests[0].userAddress), initialCurrencyBalance + initialInfo1.currencyAmount);
         assertEq(currency.balanceOf(requests[1].userAddress), initialCurrencyBalance2);
-        uint256 totalCurrencyDeposits = launch.getDepositsByCurrency(testLaunchGroupId, address(currency));
-        assertEq(totalCurrencyDeposits, initialTotalCurrencyDeposits - initialInfo1.currencyAmount);
 
         vm.stopPrank();
     }
@@ -92,7 +89,6 @@ contract LaunchBatchRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         ParticipationInfo memory initialInfo2 = launch.getParticipationInfo(requests[1].launchParticipationId);
         uint256 initialCurrencyBalance = currency.balanceOf(requests[0].userAddress);
         uint256 initialCurrencyBalance2 = currency.balanceOf(requests[1].userAddress);
-        uint256 initialTotalCurrencyDeposits = launch.getDepositsByCurrency(testLaunchGroupId, address(currency));
 
         // Verify RefundClaimed and Transfer events
         vm.expectEmit(true, true, true, true);
@@ -130,11 +126,6 @@ contract LaunchBatchRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         assertEq(newInfo2.currencyAmount, 0);
         assertEq(currency.balanceOf(requests[0].userAddress), initialCurrencyBalance + initialInfo1.currencyAmount);
         assertEq(currency.balanceOf(requests[1].userAddress), initialCurrencyBalance2 + initialInfo2.currencyAmount);
-        uint256 totalCurrencyDeposits = launch.getDepositsByCurrency(testLaunchGroupId, address(currency));
-        assertEq(
-            totalCurrencyDeposits,
-            initialTotalCurrencyDeposits - initialInfo1.currencyAmount - initialInfo2.currencyAmount
-        );
 
         vm.stopPrank();
     }
