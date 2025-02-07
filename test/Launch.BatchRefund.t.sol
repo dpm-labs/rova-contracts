@@ -36,14 +36,13 @@ contract LaunchBatchRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         users[1] = user2;
 
         requests = _setupParticipations(participationIds, users);
+    }
 
+    function test_BatchRefund_SingleParticipation() public {
         // Complete the launch group
         vm.startPrank(manager);
         launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
         vm.stopPrank();
-    }
-
-    function test_BatchRefund_SingleParticipation() public {
         vm.startPrank(operator);
 
         ParticipationInfo memory initialInfo1 = launch.getParticipationInfo(requests[0].launchParticipationId);
@@ -83,6 +82,11 @@ contract LaunchBatchRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_BatchRefund_MultipleParticipations() public {
+        // Complete the launch group
+        vm.startPrank(manager);
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        vm.stopPrank();
+
         vm.startPrank(operator);
 
         ParticipationInfo memory initialInfo1 = launch.getParticipationInfo(requests[0].launchParticipationId);
@@ -170,11 +174,6 @@ contract LaunchBatchRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_RevertIf_BatchRefund_InvalidRefundRequestIsFinalized() public {
-        // Update launch group status
-        vm.startPrank(manager);
-        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.ACTIVE);
-        vm.stopPrank();
-
         // Select as winner
         vm.startPrank(operator);
         launch.finalizeWinners(testLaunchGroupId, participationIds);
@@ -186,17 +185,14 @@ contract LaunchBatchRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         vm.stopPrank();
 
         vm.startPrank(operator);
-        vm.expectRevert(abi.encodeWithSelector(InvalidRefundRequest.selector, requests[0].launchParticipationId));
+        vm.expectRevert(
+            abi.encodeWithSelector(InvalidRefundRequest.selector, requests[0].launchParticipationId, requests[0].userId)
+        );
         // Batch refund
         launch.batchRefund(testLaunchGroupId, participationIds);
     }
 
     function test_RevertIf_BatchRefund_InvalidRefundRequestAmounts() public {
-        // Update launch group status
-        vm.startPrank(manager);
-        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.ACTIVE);
-        vm.stopPrank();
-
         // Cancel participation
         vm.startPrank(requests[0].userAddress);
         CancelParticipationRequest memory cancelRequest = _createCancelParticipationRequest();
@@ -213,7 +209,9 @@ contract LaunchBatchRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         vm.stopPrank();
 
         vm.startPrank(operator);
-        vm.expectRevert(abi.encodeWithSelector(InvalidRefundRequest.selector, requests[0].launchParticipationId));
+        vm.expectRevert(
+            abi.encodeWithSelector(InvalidRefundRequest.selector, requests[0].launchParticipationId, requests[0].userId)
+        );
         // Batch refund
         launch.batchRefund(testLaunchGroupId, participationIds);
     }

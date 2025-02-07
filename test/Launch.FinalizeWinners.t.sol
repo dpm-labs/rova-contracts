@@ -72,6 +72,46 @@ contract LaunchfinalizeWinnersTest is Test, Launch, LaunchTestBase {
         vm.stopPrank();
     }
 
+    function test_FinalizeWinners_AllowFinalizeWinnersForDifferentLaunchGroupId() public {
+        // Create new launch group
+        bytes32 launchGroupId = bytes32(uint256(1));
+        _setupLaunchGroupWithStatus(launchGroupId, LaunchGroupStatus.ACTIVE);
+
+        vm.startPrank(operator);
+
+        // Verify WinnerSelected events
+        vm.expectEmit(true, true, true, true);
+        emit WinnerSelected(
+            launchGroupId, requests[0].launchParticipationId, requests[0].userId, requests[0].userAddress
+        );
+        vm.expectEmit(true, true, true, true);
+        emit WinnerSelected(
+            launchGroupId, requests[1].launchParticipationId, requests[1].userId, requests[1].userAddress
+        );
+
+        // Select winners
+        launch.finalizeWinners(launchGroupId, participationIds);
+
+        // Verify winners
+        ParticipationInfo[] memory infos = new ParticipationInfo[](participationIds.length);
+        for (uint256 i = 0; i < participationIds.length; i++) {
+            ParticipationInfo memory info = launch.getParticipationInfo(participationIds[i]);
+            assertTrue(info.isFinalized);
+            infos[i] = info;
+        }
+
+        // Verify tokens sold
+        uint256 currTotalTokensSold = launch.getTokensSoldByLaunchGroup(launchGroupId);
+        assertEq(currTotalTokensSold, requests[0].tokenAmount + requests[1].tokenAmount);
+
+        // Verify withdrawable amount
+        assertEq(
+            launch.getWithdrawableAmountByCurrency(address(currency)), infos[0].currencyAmount + infos[1].currencyAmount
+        );
+
+        vm.stopPrank();
+    }
+
     function test_RevertIf_FinalizeWinners_InvalidLaunchGroupStatus() public {
         // Update launch group status
         vm.startPrank(manager);
@@ -106,9 +146,9 @@ contract LaunchfinalizeWinnersTest is Test, Launch, LaunchTestBase {
         LaunchGroupSettings memory customSettings =
             _setupLaunchGroupWithStatus(launchGroupId, LaunchGroupStatus.PENDING);
         customSettings.finalizesAtParticipation = true;
+        customSettings.status = LaunchGroupStatus.ACTIVE;
         vm.startPrank(manager);
         launch.setLaunchGroupSettings(launchGroupId, customSettings);
-        launch.setLaunchGroupStatus(launchGroupId, LaunchGroupStatus.ACTIVE);
         vm.stopPrank();
 
         vm.startPrank(operator);
@@ -117,7 +157,7 @@ contract LaunchfinalizeWinnersTest is Test, Launch, LaunchTestBase {
         launch.finalizeWinners(launchGroupId, participationIds);
     }
 
-    function test_RevertIf_FinalizeWinners_InvalidWinner() public {
+    function test_RevertIf_FinalizeWinners_InvalidWinnerZeroAmounts() public {
         // Cancel participation
         vm.startPrank(requests[0].userAddress);
         CancelParticipationRequest memory request = _createCancelParticipationRequest();
@@ -129,7 +169,7 @@ contract LaunchfinalizeWinnersTest is Test, Launch, LaunchTestBase {
         vm.stopPrank();
 
         vm.startPrank(operator);
-        vm.expectRevert(abi.encodeWithSelector(InvalidWinner.selector, participationIds[0]));
+        vm.expectRevert(abi.encodeWithSelector(InvalidWinner.selector, participationIds[0], requests[0].userId));
         // Select winners
         launch.finalizeWinners(testLaunchGroupId, participationIds);
     }

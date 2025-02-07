@@ -252,11 +252,11 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
         LaunchGroupSettings memory customSettings =
             _setupLaunchGroupWithStatus(launchGroupId, LaunchGroupStatus.PENDING);
         customSettings.finalizesAtParticipation = true;
+        customSettings.status = LaunchGroupStatus.ACTIVE;
 
         // Update launch group settings
         vm.startPrank(manager);
         launch.setLaunchGroupSettings(launchGroupId, customSettings);
-        launch.setLaunchGroupStatus(launchGroupId, LaunchGroupStatus.ACTIVE);
         vm.stopPrank();
 
         // Participate
@@ -320,7 +320,7 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
         launch.updateParticipation(request, signature);
     }
 
-    function test_RevertIf_UpdateParticipation_InvalidRequestDifferentCurrency() public {
+    function test_RevertIf_UpdateParticipation_CurrencyMismatch() public {
         // Register new currency
         vm.startPrank(manager);
         launch.setLaunchGroupCurrency(
@@ -334,21 +334,19 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
         bytes memory signature = _signRequest(abi.encode(request));
 
         vm.startPrank(user1);
-        vm.expectRevert(
-            abi.encodeWithSelector(InvalidRequestCurrency.selector, address(currency), address(request.currency))
-        );
+        vm.expectRevert(abi.encodeWithSelector(CurrencyMismatch.selector, address(currency), address(request.currency)));
         // Update participation
         launch.updateParticipation(request, signature);
     }
 
-    function test_RevertIf_UpdateParticipation_InvalidRequestUserId() public {
+    function test_RevertIf_UpdateParticipation_UserIdMismatch() public {
         // Prepare update participation request
         UpdateParticipationRequest memory request = _createUpdateParticipationRequest(1000);
         request.userId = "invalidUserId";
         bytes memory signature = _signRequest(abi.encode(request));
 
         vm.startPrank(user1);
-        vm.expectRevert(abi.encodeWithSelector(InvalidRequestUserId.selector, testUserId, request.userId));
+        vm.expectRevert(abi.encodeWithSelector(UserIdMismatch.selector, testUserId, request.userId));
         // Update participation
         launch.updateParticipation(request, signature);
     }

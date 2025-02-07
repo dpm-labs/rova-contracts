@@ -43,11 +43,11 @@ struct CurrencyConfig {
 /// @param currency The currency of the participation.
 /// @param isFinalized Whether the participation is finalized.
 struct ParticipationInfo {
-    address userAddress;
     bytes32 userId;
     uint256 tokenAmount;
     uint256 currencyAmount;
     address currency;
+    address userAddress;
     bool isFinalized;
 }
 

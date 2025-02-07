@@ -214,9 +214,9 @@ contract LaunchCancelParticipationTest is Test, Launch, LaunchTestBase {
         LaunchGroupSettings memory customSettings =
             _setupLaunchGroupWithStatus(launchGroupId, LaunchGroupStatus.PENDING);
         customSettings.finalizesAtParticipation = true;
+        customSettings.status = LaunchGroupStatus.ACTIVE;
         vm.startPrank(manager);
         launch.setLaunchGroupSettings(launchGroupId, customSettings);
-        launch.setLaunchGroupStatus(launchGroupId, LaunchGroupStatus.ACTIVE);
         vm.stopPrank();
 
         // Prepare cancel participation request
@@ -241,7 +241,7 @@ contract LaunchCancelParticipationTest is Test, Launch, LaunchTestBase {
         bytes memory signature = _signRequest(abi.encode(request));
 
         vm.startPrank(user1);
-        vm.expectRevert(abi.encodeWithSelector(InvalidRequestUserId.selector, testUserId, request.userId));
+        vm.expectRevert(abi.encodeWithSelector(UserIdMismatch.selector, testUserId, request.userId));
         // Cancel participation
         launch.cancelParticipation(request, signature);
     }

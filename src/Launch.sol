@@ -65,28 +65,24 @@ contract Launch is
     EnumerableSet.Bytes32Set internal _launchGroups;
 
     /// @notice Launch group settings
-    /// @dev This maps (launchGroupId => LaunchGroupSettings)
     mapping(bytes32 => LaunchGroupSettings) public launchGroupSettings;
 
     /// @notice User participation information for each launch group
-    /// @dev This maps (launchParticipationId => ParticipationInfo)
     mapping(bytes32 => ParticipationInfo) public launchGroupParticipations;
 
     /// @notice Launch group accepted payment currencies to their config
     mapping(bytes32 => mapping(address => CurrencyConfig)) internal _launchGroupCurrencies;
 
     /// @notice Total tokens sold for each launch group
-    /// @dev This maps (launchGroupId => amount) and only tracks finalized participations
-    /// @dev This is used to make sure the total token allocation for each launch group is not exceeded
+    /// @dev This only tracks finalized participations and is used to make sure the total token allocation for each launch group is not exceeded
     EnumerableMap.Bytes32ToUintMap internal _tokensSoldByLaunchGroup;
 
     /// @notice Total tokens requested per user for each launch group
-    /// @dev This maps (launchGroupId => userId => amount)
     /// @dev This is used to make sure users are within the min/max token per user allocation for each launch group
     mapping(bytes32 => EnumerableMap.Bytes32ToUintMap) internal _userTokensByLaunchGroup;
 
     /// @notice Total finalized deposits for each launch group by currency
-    /// @dev This maps (payment currency => amount) and keeps track of the total amount that can be withdrawn to the withdrawal address
+    /// @dev This keeps track of the total amount that can be withdrawn per currency
     EnumerableMap.AddressToUintMap internal _withdrawableAmountByCurrency;
 
     error InvalidRequest();
@@ -103,15 +99,15 @@ contract Launch is
         bytes32 launchGroupId, bytes32 userId, uint256 currTokenAmount, uint256 requestedTokenAmount
     );
     error MaxUserParticipationsReached(bytes32 launchGroupId, bytes32 userId);
-    error InvalidRequestCurrency(address prevCurrency, address newCurrency);
-    error InvalidRequestUserId(bytes32 prevUserId, bytes32 newUserId);
+    error CurrencyMismatch(address expectedCurrency, address actualCurrency);
+    error UserIdMismatch(bytes32 expectedUserId, bytes32 actualUserId);
     error InvalidLaunchGroupStatus(
         bytes32 launchGroupId, LaunchGroupStatus expectedStatus, LaunchGroupStatus actualStatus
     );
     error ParticipationUpdatesNotAllowed(bytes32 launchGroupId, bytes32 launchParticipationId);
-    error InvalidRefundRequest(bytes32 launchParticipationId);
+    error InvalidRefundRequest(bytes32 launchParticipationId, bytes32 userId);
     error LaunchGroupFinalizesAtParticipation(bytes32 launchGroupId);
-    error InvalidWinner(bytes32 launchParticipationId);
+    error InvalidWinner(bytes32 launchParticipationId, bytes32 userId);
     error InvalidWithdrawalAmount(uint256 expectedBalance, uint256 actualBalance);
 
     /// @notice Event for launch group creation
@@ -193,13 +189,11 @@ contract Launch is
         if (_initialAdmin == address(0) || _withdrawalAddress == address(0)) {
             revert InvalidRequest();
         }
-
         _grantRole(DEFAULT_ADMIN_ROLE, _initialAdmin);
         _grantRole(MANAGER_ROLE, _initialAdmin);
         _grantRole(WITHDRAWAL_ROLE, _withdrawalAddress);
         _grantRole(OPERATOR_ROLE, _initialAdmin);
         _grantRole(SIGNER_ROLE, _initialAdmin);
-
         _setRoleAdmin(WITHDRAWAL_ROLE, WITHDRAWAL_ROLE);
 
         withdrawalAddress = _withdrawalAddress;
@@ -208,8 +202,7 @@ contract Launch is
     }
 
     /// @notice Participate in a launch group
-    /// @dev If finalizesAtParticipation is false, users cannot resubmit another participation
-    /// @dev and should perform updates instead
+    /// @dev If finalizesAtParticipation is false, users cannot resubmit another participation and should perform updates instead
     function participate(ParticipationRequest calldata request, bytes calldata signature)
         external
         nonReentrant
@@ -219,34 +212,35 @@ contract Launch is
         _validateRequest(
             request.launchId, request.launchGroupId, request.chainId, request.requestExpiresAt, request.userAddress
         );
-        _validateTimestamp(request.launchGroupId);
-        if (!_validateRequestSignature(keccak256(abi.encode(request)), signature)) {
-            revert InvalidSignature();
-        }
-        CurrencyConfig memory currencyConfig = _validateCurrency(request.launchGroupId, request.currency);
+        LaunchGroupSettings memory settings = launchGroupSettings[request.launchGroupId];
+        _validateTimestamp(settings);
+        _validateRequestSignature(keccak256(abi.encode(request)), signature);
+        uint256 tokenPriceBps = _validateCurrency(request.launchGroupId, request.currency);
         // Do not allow replay of launch participation ID
         if (launchGroupParticipations[request.launchParticipationId].userId != bytes32(0)) {
             revert ParticipationAlreadyExists(request.launchParticipationId);
         }
-        LaunchGroupSettings storage settings = launchGroupSettings[request.launchGroupId];
         // Validate user allocation
-        (, uint256 userTokenAmount) = _userTokensByLaunchGroup[request.launchGroupId].tryGet(request.userId);
-        if (!settings.finalizesAtParticipation && userTokenAmount > 0) {
-            revert MaxUserParticipationsReached(request.launchGroupId, request.userId);
+        EnumerableMap.Bytes32ToUintMap storage userTokens = _userTokensByLaunchGroup[request.launchGroupId];
+        (, uint256 userTokenAmount) = userTokens.tryGet(request.userId);
+        if (userTokenAmount > 0) {
+            if (!settings.finalizesAtParticipation) {
+                revert MaxUserParticipationsReached(request.launchGroupId, request.userId);
+            }
         }
-        if (userTokenAmount + request.tokenAmount > settings.maxTokenAmountPerUser) {
+        uint256 newUserTokenAmount = userTokenAmount + request.tokenAmount;
+        if (newUserTokenAmount > settings.maxTokenAmountPerUser) {
             revert MaxUserTokenAllocationReached(
                 request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
             );
         }
-        if (userTokenAmount + request.tokenAmount < settings.minTokenAmountPerUser) {
+        if (newUserTokenAmount < settings.minTokenAmountPerUser) {
             revert MinUserTokenAllocationNotReached(
                 request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
             );
         }
-        // Calculate currency payment amount
-        uint256 currencyAmount = _calculateCurrencyAmount(currencyConfig.tokenPriceBps, request.tokenAmount);
         // Update participation info
+        uint256 currencyAmount = _calculateCurrencyAmount(tokenPriceBps, request.tokenAmount);
         ParticipationInfo storage info = launchGroupParticipations[request.launchParticipationId];
         if (settings.finalizesAtParticipation) {
             (, uint256 currTotalTokensSold) = _tokensSoldByLaunchGroup.tryGet(request.launchGroupId);
@@ -264,7 +258,7 @@ contract Launch is
         info.currencyAmount = currencyAmount;
         info.currency = request.currency;
         // Update user token amount
-        _userTokensByLaunchGroup[request.launchGroupId].set(request.userId, userTokenAmount + request.tokenAmount);
+        userTokens.set(request.userId, newUserTokenAmount);
         IERC20(request.currency).safeTransferFrom(msg.sender, address(this), currencyAmount);
         emit ParticipationRegistered(
             request.launchGroupId,
@@ -286,28 +280,25 @@ contract Launch is
         _validateRequest(
             request.launchId, request.launchGroupId, request.chainId, request.requestExpiresAt, request.userAddress
         );
-        _validateTimestamp(request.launchGroupId);
-        if (!_validateRequestSignature(keccak256(abi.encode(request)), signature)) {
-            revert InvalidSignature();
-        }
-        CurrencyConfig memory currencyConfig = _validateCurrency(request.launchGroupId, request.currency);
         LaunchGroupSettings memory settings = launchGroupSettings[request.launchGroupId];
+        _validateTimestamp(settings);
+        _validateRequestSignature(keccak256(abi.encode(request)), signature);
+        uint256 tokenPriceBps = _validateCurrency(request.launchGroupId, request.currency);
         ParticipationInfo storage prevInfo = launchGroupParticipations[request.prevLaunchParticipationId];
         if (settings.finalizesAtParticipation || prevInfo.isFinalized) {
             revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.prevLaunchParticipationId);
         }
         ParticipationInfo storage newInfo = launchGroupParticipations[request.newLaunchParticipationId];
-        // Validate currency is the same
         if (request.currency != prevInfo.currency) {
-            revert InvalidRequestCurrency(prevInfo.currency, request.currency);
+            revert CurrencyMismatch(prevInfo.currency, request.currency);
         }
-        // Validate user id is the same
         if (request.userId != prevInfo.userId) {
-            revert InvalidRequestUserId(prevInfo.userId, request.userId);
+            revert UserIdMismatch(prevInfo.userId, request.userId);
         }
-        // Calculate new currency amount
-        uint256 newCurrencyAmount = _calculateCurrencyAmount(currencyConfig.tokenPriceBps, request.tokenAmount);
-        (, uint256 userTokenAmount) = _userTokensByLaunchGroup[request.launchGroupId].tryGet(request.userId);
+        // Calculate new payment currency amount
+        uint256 newCurrencyAmount = _calculateCurrencyAmount(tokenPriceBps, request.tokenAmount);
+        EnumerableMap.Bytes32ToUintMap storage userTokens = _userTokensByLaunchGroup[request.launchGroupId];
+        (, uint256 userTokenAmount) = userTokens.tryGet(request.userId);
         if (prevInfo.currencyAmount > newCurrencyAmount) {
             // Handle refund if new amount is less than old amount
             uint256 refundCurrencyAmount = prevInfo.currencyAmount - newCurrencyAmount;
@@ -316,7 +307,7 @@ contract Launch is
                     request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
                 );
             }
-            _userTokensByLaunchGroup[request.launchGroupId].set(request.userId, userTokenAmount - refundCurrencyAmount);
+            userTokens.set(request.userId, userTokenAmount - refundCurrencyAmount);
             IERC20(request.currency).safeTransfer(msg.sender, refundCurrencyAmount);
         } else if (newCurrencyAmount > prevInfo.currencyAmount) {
             // Take additional payment if new amount is greater than old amount
@@ -326,9 +317,7 @@ contract Launch is
                     request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
                 );
             }
-            _userTokensByLaunchGroup[request.launchGroupId].set(
-                request.userId, userTokenAmount + additionalCurrencyAmount
-            );
+            userTokens.set(request.userId, userTokenAmount + additionalCurrencyAmount);
             IERC20(request.currency).safeTransferFrom(msg.sender, address(this), additionalCurrencyAmount);
         }
         newInfo.currencyAmount = newCurrencyAmount;
@@ -358,11 +347,9 @@ contract Launch is
         _validateRequest(
             request.launchId, request.launchGroupId, request.chainId, request.requestExpiresAt, request.userAddress
         );
-        _validateTimestamp(request.launchGroupId);
-        if (!_validateRequestSignature(keccak256(abi.encode(request)), signature)) {
-            revert InvalidSignature();
-        }
         LaunchGroupSettings memory settings = launchGroupSettings[request.launchGroupId];
+        _validateTimestamp(settings);
+        _validateRequestSignature(keccak256(abi.encode(request)), signature);
         if (settings.finalizesAtParticipation) {
             revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.launchParticipationId);
         }
@@ -372,20 +359,20 @@ contract Launch is
         }
         // Validate userId is the same which also checks if participation exists
         if (request.userId != info.userId) {
-            revert InvalidRequestUserId(info.userId, request.userId);
+            revert UserIdMismatch(info.userId, request.userId);
         }
-        (, uint256 userTokenAmount) = _userTokensByLaunchGroup[request.launchGroupId].tryGet(request.userId);
+        EnumerableMap.Bytes32ToUintMap storage userTokens = _userTokensByLaunchGroup[request.launchGroupId];
+        (, uint256 userTokenAmount) = userTokens.tryGet(request.userId);
         if (userTokenAmount - info.tokenAmount == 0) {
-            _userTokensByLaunchGroup[request.launchGroupId].remove(request.userId);
+            userTokens.remove(request.userId);
         } else if (userTokenAmount - info.tokenAmount < settings.minTokenAmountPerUser) {
             revert MinUserTokenAllocationNotReached(
                 request.launchGroupId, request.userId, userTokenAmount, info.tokenAmount
             );
         } else {
-            _userTokensByLaunchGroup[request.launchGroupId].set(request.userId, userTokenAmount - info.tokenAmount);
+            userTokens.set(request.userId, userTokenAmount - info.tokenAmount);
         }
         uint256 refundCurrencyAmount = info.currencyAmount;
-        // Refund currency to user
         IERC20(info.currency).safeTransfer(info.userAddress, refundCurrencyAmount);
         // Reset participation info
         info.tokenAmount = 0;
@@ -401,7 +388,7 @@ contract Launch is
     }
 
     /// @notice Claim refund for unfinalized participation
-    /// @dev Only allowed for completed launch groups
+    /// @dev Users are only allowed to claim refund for completed launch groups
     function claimRefund(ClaimRefundRequest calldata request, bytes calldata signature)
         external
         nonReentrant
@@ -411,12 +398,10 @@ contract Launch is
         _validateRequest(
             request.launchId, request.launchGroupId, request.chainId, request.requestExpiresAt, request.userAddress
         );
-        if (!_validateRequestSignature(keccak256(abi.encode(request)), signature)) {
-            revert InvalidSignature();
-        }
+        _validateRequestSignature(keccak256(abi.encode(request)), signature);
         ParticipationInfo storage info = launchGroupParticipations[request.launchParticipationId];
         if (request.userId != info.userId) {
-            revert InvalidRequestUserId(info.userId, request.userId);
+            revert UserIdMismatch(info.userId, request.userId);
         }
         _processRefund(request.launchGroupId, request.launchParticipationId, info);
     }
@@ -452,8 +437,8 @@ contract Launch is
         uint256 currTotalTokensSold = totalTokensSold;
         for (uint256 i = 0; i < winnerLaunchParticipationIds.length; i++) {
             ParticipationInfo storage info = launchGroupParticipations[winnerLaunchParticipationIds[i]];
-            if (info.tokenAmount == 0 || info.isFinalized || info.currencyAmount == 0) {
-                revert InvalidWinner(winnerLaunchParticipationIds[i]);
+            if (info.isFinalized || info.tokenAmount == 0 || info.currencyAmount == 0) {
+                revert InvalidWinner(winnerLaunchParticipationIds[i], info.userId);
             }
             if (settings.maxTokenAllocation < currTotalTokensSold + info.tokenAmount) {
                 revert MaxTokenAllocationReached(launchGroupId);
@@ -493,20 +478,22 @@ contract Launch is
     }
 
     /// @notice Validate request signature
-    function _validateRequestSignature(bytes32 messageHash, bytes calldata signature) private view returns (bool) {
+    function _validateRequestSignature(bytes32 messageHash, bytes calldata signature) private view {
         address signer = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(messageHash), signature);
-        bool success = hasRole(SIGNER_ROLE, signer);
-        return success;
+        if (!hasRole(SIGNER_ROLE, signer)) {
+            revert InvalidSignature();
+        }
     }
 
     function _processRefund(bytes32 launchGroupId, bytes32 launchParticipationId, ParticipationInfo storage info)
         private
     {
         if (info.isFinalized || info.currencyAmount == 0 || info.tokenAmount == 0) {
-            revert InvalidRefundRequest(launchParticipationId);
+            revert InvalidRefundRequest(launchParticipationId, info.userId);
         }
-        (, uint256 userTokenAmount) = _userTokensByLaunchGroup[launchGroupId].tryGet(info.userId);
-        _userTokensByLaunchGroup[launchGroupId].set(info.userId, userTokenAmount - info.tokenAmount);
+        EnumerableMap.Bytes32ToUintMap storage userTokens = _userTokensByLaunchGroup[launchGroupId];
+        (, uint256 userTokenAmount) = userTokens.tryGet(info.userId);
+        userTokens.set(info.userId, userTokenAmount - info.tokenAmount);
         uint256 refundCurrencyAmount = info.currencyAmount;
         info.tokenAmount = 0;
         info.currencyAmount = 0;
@@ -530,36 +517,42 @@ contract Launch is
         ) {
             revert InvalidRequest();
         }
-
         if (_requestExpiresAt <= block.timestamp) {
             revert ExpiredRequest(_requestExpiresAt, block.timestamp);
         }
     }
 
-    /// @notice Validates launch group timestamp
-    function _validateTimestamp(bytes32 _launchGroupId) private view {
-        LaunchGroupSettings memory settings = launchGroupSettings[_launchGroupId];
+    /// @notice Validates launch group is open for participation
+    function _validateTimestamp(LaunchGroupSettings memory settings) private view {
         if (block.timestamp < settings.startsAt || block.timestamp > settings.endsAt) {
             revert InvalidRequest();
         }
     }
 
     /// @notice Validate currency is enabled for a launch group
-    function _validateCurrency(bytes32 _launchGroupId, address _currency)
-        private
-        view
-        returns (CurrencyConfig memory)
-    {
-        if (!_launchGroupCurrencies[_launchGroupId][_currency].isEnabled) {
+    function _validateCurrency(bytes32 _launchGroupId, address _currency) private view returns (uint256) {
+        CurrencyConfig memory currencyConfig = _launchGroupCurrencies[_launchGroupId][_currency];
+        if (!currencyConfig.isEnabled) {
             revert InvalidRequest();
         }
-        return _launchGroupCurrencies[_launchGroupId][_currency];
+        return currencyConfig.tokenPriceBps;
     }
 
     /// @notice Validate currency config
     function _validateCurrencyConfig(CurrencyConfig calldata currencyConfig) private pure {
         if (currencyConfig.tokenPriceBps == 0) {
             revert InvalidRequest();
+        }
+    }
+
+    /// @notice Validate launch group status transition
+    /// @dev Status changes to pending are not allowed since other statuses can involve state changes
+    /// @dev Status changes from completed are not allowed since it is the terminal state
+    function _validateStatusTransition(LaunchGroupStatus prevStatus, LaunchGroupStatus newStatus) private pure {
+        if (prevStatus != newStatus) {
+            if (newStatus == LaunchGroupStatus.PENDING || prevStatus == LaunchGroupStatus.COMPLETED) {
+                revert InvalidRequest();
+            }
         }
     }
 
@@ -609,6 +602,7 @@ contract Launch is
             revert InvalidRequest();
         }
         LaunchGroupSettings memory prevSettings = launchGroupSettings[launchGroupId];
+        _validateStatusTransition(prevSettings.status, settings.status);
         if (
             prevSettings.status != LaunchGroupStatus.PENDING
                 && settings.finalizesAtParticipation != prevSettings.finalizesAtParticipation
@@ -625,11 +619,8 @@ contract Launch is
     }
 
     /// @notice Set launch group status
-    /// @dev Status changes to pending are not allowed since other statuses can involve state changes
     function setLaunchGroupStatus(bytes32 launchGroupId, LaunchGroupStatus status) external onlyRole(MANAGER_ROLE) {
-        if (status == LaunchGroupStatus.PENDING) {
-            revert InvalidRequest();
-        }
+        _validateStatusTransition(launchGroupSettings[launchGroupId].status, status);
         launchGroupSettings[launchGroupId].status = status;
         emit LaunchGroupStatusUpdated(launchGroupId, status);
     }

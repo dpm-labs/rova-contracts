@@ -10,4 +10,9 @@ ffi = true
 build_info = true
 extra_output = ["storageLayout"]
 
+[rpc_endpoints]
+base-mainnet = "https://mainnet.base.org"
+base-testnet = "https://sepolia.base.org"
+local = "127.0.0.1:8545"
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

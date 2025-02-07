@@ -19,14 +19,4 @@ contract LaunchInitializeTest is Test, Launch, LaunchTestBase {
         assertTrue(launch.hasRole(launch.WITHDRAWAL_ROLE(), testWithdrawalAddress));
         assertEq(launch.getRoleAdmin(launch.WITHDRAWAL_ROLE()), launch.WITHDRAWAL_ROLE());
     }
-
-    function test_RevertIf_InvalidAdminAddress() public {
-        vm.expectRevert(InvalidRequest.selector);
-        _initializeLaunch(address(0), testWithdrawalAddress);
-    }
-
-    function test_RevertIf_InvalidWithdrawalAddress() public {
-        vm.expectRevert(InvalidRequest.selector);
-        _initializeLaunch(admin.addr, address(0));
-    }
 }

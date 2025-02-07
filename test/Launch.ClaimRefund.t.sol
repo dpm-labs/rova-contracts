@@ -32,14 +32,14 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         launch.participate(request, signature);
 
         vm.stopPrank();
+    }
 
+    function test_ClaimRefund() public {
         // Complete the launch group
         vm.startPrank(manager);
         launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
         vm.stopPrank();
-    }
 
-    function test_ClaimRefund() public {
         ParticipationInfo memory initialInfo = launch.getParticipationInfo(testLaunchParticipationId);
         uint256 initialCurrencyBalance = currency.balanceOf(user1);
         uint256 initialUserTokenAmount = launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId);
@@ -79,6 +79,11 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_RevertIf_ClaimRefund_LaunchPaused() public {
+        // Complete the launch group
+        vm.startPrank(manager);
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        vm.stopPrank();
+
         vm.startPrank(admin.addr);
         launch.pause();
         vm.stopPrank();
@@ -94,11 +99,6 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_RevertIf_ClaimRefund_InvalidLaunchGroupStatus() public {
-        // Update launch group status
-        vm.startPrank(manager);
-        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.PAUSED);
-        vm.stopPrank();
-
         // Prepare claim refund request
         ClaimRefundRequest memory request = _createClaimRefundRequest();
         bytes memory signature = _signRequest(abi.encode(request));
@@ -109,7 +109,7 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
                 InvalidLaunchGroupStatus.selector,
                 testLaunchGroupId,
                 LaunchGroupStatus.COMPLETED,
-                LaunchGroupStatus.PAUSED
+                LaunchGroupStatus.ACTIVE
             )
         );
         // Claim refund
@@ -117,6 +117,10 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_RevertIf_ClaimRefund_InvalidRequestLaunchId() public {
+        // Complete the launch group
+        vm.startPrank(manager);
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        vm.stopPrank();
         // Prepare claim refund request
         ClaimRefundRequest memory request = _createClaimRefundRequest();
         request.launchId = "invalidLaunchId";
@@ -129,6 +133,11 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_RevertIf_ClaimRefund_InvalidRequestChainId() public {
+        // Complete the launch group
+        vm.startPrank(manager);
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        vm.stopPrank();
+
         // Prepare claim refund request
         ClaimRefundRequest memory request = _createClaimRefundRequest();
         request.chainId = 1;
@@ -141,6 +150,11 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_RevertIf_ClaimRefund_InvalidRequestUserAddress() public {
+        // Complete the launch group
+        vm.startPrank(manager);
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        vm.stopPrank();
+
         // Prepare claim refund request
         ClaimRefundRequest memory request = _createClaimRefundRequest();
         request.userAddress = address(0);
@@ -152,19 +166,29 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         launch.claimRefund(request, signature);
     }
 
-    function test_RevertIf_ClaimRefund_InvalidRequestUserId() public {
+    function test_RevertIf_ClaimRefund_UserIdMismatch() public {
+        // Complete the launch group
+        vm.startPrank(manager);
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        vm.stopPrank();
+
         // Prepare claim refund request
         ClaimRefundRequest memory request = _createClaimRefundRequest();
         request.userId = "invalidUserId";
         bytes memory signature = _signRequest(abi.encode(request));
 
         vm.startPrank(user1);
-        vm.expectRevert(abi.encodeWithSelector(InvalidRequestUserId.selector, testUserId, request.userId));
+        vm.expectRevert(abi.encodeWithSelector(UserIdMismatch.selector, testUserId, request.userId));
         // Claim refund
         launch.claimRefund(request, signature);
     }
 
     function test_RevertIf_ClaimRefund_ExpiredRequest() public {
+        // Complete the launch group
+        vm.startPrank(manager);
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        vm.stopPrank();
+
         // Prepare claim refund request
         ClaimRefundRequest memory request = _createClaimRefundRequest();
         request.requestExpiresAt = 0;
@@ -177,6 +201,11 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_RevertIf_ClaimRefund_InvalidSignatureSigner() public {
+        // Complete the launch group
+        vm.startPrank(manager);
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        vm.stopPrank();
+
         // Prepare claim refund request
         ClaimRefundRequest memory request = _createClaimRefundRequest();
         bytes memory signature = _signRequestWithSigner(abi.encode(request), 0x1234567890);
@@ -188,6 +217,11 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_RevertIf_ClaimRefund_InvalidSignatureInput() public {
+        // Complete the launch group
+        vm.startPrank(manager);
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        vm.stopPrank();
+
         // Prepare claim refund request
         ClaimRefundRequest memory request = _createClaimRefundRequest();
         request.requestExpiresAt = block.timestamp + 4 hours;
@@ -200,11 +234,6 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_RevertIf_ClaimRefund_InvalidRefundRequestIsFinalized() public {
-        // Update launch group status
-        vm.startPrank(manager);
-        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.ACTIVE);
-        vm.stopPrank();
-
         // Set as winner
         vm.startPrank(operator);
         bytes32[] memory participationIds = new bytes32[](1);
@@ -222,7 +251,7 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         bytes memory signature = _signRequest(abi.encode(request));
 
         vm.startPrank(user1);
-        vm.expectRevert(abi.encodeWithSelector(InvalidRefundRequest.selector, testLaunchParticipationId));
+        vm.expectRevert(abi.encodeWithSelector(InvalidRefundRequest.selector, testLaunchParticipationId, testUserId));
         // Claim refund
         launch.claimRefund(request, signature);
     }
@@ -250,7 +279,7 @@ contract LaunchClaimRefundTest is Test, Launch, LaunchTestBase, IERC20Events {
         bytes memory signature = _signRequest(abi.encode(request));
 
         vm.startPrank(user1);
-        vm.expectRevert(abi.encodeWithSelector(InvalidRefundRequest.selector, testLaunchParticipationId));
+        vm.expectRevert(abi.encodeWithSelector(InvalidRefundRequest.selector, testLaunchParticipationId, testUserId));
         // Claim refund
         launch.claimRefund(request, signature);
     }

@@ -68,6 +68,27 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
         launch.setLaunchGroupSettings(testLaunchGroupId, settings);
     }
 
+    function test_RevertIf_SetLaunchGroupSettings_InvalidRequestToPendingStatus() public {
+        LaunchGroupSettings memory settings = _setupLaunchGroup();
+        settings.status = LaunchGroupStatus.PENDING;
+
+        vm.startPrank(manager);
+        vm.expectRevert(InvalidRequest.selector);
+        // Set launch group settings
+        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
+    }
+
+    function test_RevertIf_SetLaunchGroupSettings_InvalidRequestFromCompletedStatus() public {
+        LaunchGroupSettings memory settings =
+            _setupLaunchGroupWithStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        settings.status = LaunchGroupStatus.ACTIVE;
+
+        vm.startPrank(manager);
+        vm.expectRevert(InvalidRequest.selector);
+        // Set launch group settings
+        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
+    }
+
     /**
      * @notice Test setLaunchGroupStatus
      */
@@ -84,7 +105,7 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
         assertTrue(launch.getLaunchGroupSettings(testLaunchGroupId).status == LaunchGroupStatus.PAUSED);
     }
 
-    function test_RevertIf_SetLaunchGroupStatus_InvalidRequestPendingStatus() public {
+    function test_RevertIf_SetLaunchGroupStatus_InvalidRequestToPendingStatus() public {
         _setupLaunchGroup();
         assertTrue(launch.getLaunchGroupSettings(testLaunchGroupId).status == LaunchGroupStatus.ACTIVE);
 
@@ -92,6 +113,24 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
         vm.expectRevert(InvalidRequest.selector);
         // Set launch group status
         launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.PENDING);
+    }
+
+    function test_RevertIf_SetLaunchGroupStatus_InvalidRequestFromCompletedStatus() public {
+        _setupLaunchGroup();
+        vm.startPrank(manager);
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.COMPLETED);
+        vm.stopPrank();
+        assertTrue(launch.getLaunchGroupSettings(testLaunchGroupId).status == LaunchGroupStatus.COMPLETED);
+
+        vm.startPrank(manager);
+        vm.expectRevert(InvalidRequest.selector);
+        // Set launch group status
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.PENDING);
+
+        vm.startPrank(manager);
+        vm.expectRevert(InvalidRequest.selector);
+        // Set launch group status
+        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.ACTIVE);
     }
 
     /**

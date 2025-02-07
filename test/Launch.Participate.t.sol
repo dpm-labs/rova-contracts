@@ -7,6 +7,7 @@ import {Test} from "forge-std/Test.sol";
 import {LaunchTestBase} from "./LaunchTestBase.t.sol";
 import {Launch} from "../src/Launch.sol";
 import {
+    CancelParticipationRequest,
     LaunchGroupSettings,
     LaunchGroupStatus,
     ParticipationRequest,
@@ -179,6 +180,41 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         assertEq(launch.getUserTokensByLaunchGroup(request.launchGroupId, testUserId), request.tokenAmount * 2);
 
         vm.stopPrank();
+    }
+
+    function test_Participate_ReparticipateAfterCancelParticipation() public {
+        // Setup launch group
+        _setupLaunchGroup();
+
+        // Prepare participation request
+        ParticipationRequest memory request = _createParticipationRequest();
+        bytes memory signature = _signRequest(abi.encode(request));
+        vm.startPrank(user1);
+        uint256 currencyAmount = _getCurrencyAmount(request.launchGroupId, request.currency, request.tokenAmount);
+        currency.approve(address(launch), currencyAmount);
+
+        // Participate
+        launch.participate(request, signature);
+
+        // Cancel participation
+        CancelParticipationRequest memory cancelRequest = _createCancelParticipationRequest();
+        bytes memory cancelSignature = _signRequest(abi.encode(cancelRequest));
+        launch.cancelParticipation(cancelRequest, cancelSignature);
+
+        // Participate again
+        currency.approve(address(launch), currencyAmount);
+        request.launchParticipationId = "participationId2";
+        bytes memory newSignature = _signRequest(abi.encode(request));
+        launch.participate(request, newSignature);
+
+        // Verify participation
+        ParticipationInfo memory info = launch.getParticipationInfo(request.launchParticipationId);
+        assertEq(info.userAddress, user1);
+        assertEq(info.userId, testUserId);
+        assertEq(info.tokenAmount, request.tokenAmount);
+        assertEq(info.currencyAmount, currencyAmount);
+        assertEq(info.currency, address(currency));
+        assertEq(info.isFinalized, false);
     }
 
     function test_RevertIf_Participate_LaunchPaused() public {
@@ -523,9 +559,9 @@ contract LaunchParticipateTest is Test, Launch, LaunchTestBase {
         LaunchGroupSettings memory settings = _setupLaunchGroupWithStatus(launchGroupId, LaunchGroupStatus.PENDING);
         settings.finalizesAtParticipation = true;
         settings.maxTokenAllocation = 500 * 10 ** launch.tokenDecimals();
+        settings.status = LaunchGroupStatus.ACTIVE;
         vm.startPrank(manager);
         launch.setLaunchGroupSettings(launchGroupId, settings);
-        launch.setLaunchGroupStatus(launchGroupId, LaunchGroupStatus.ACTIVE);
         vm.stopPrank();
 
         // Prepare participation request

@@ -97,17 +97,14 @@ contract LaunchWithdrawTest is Test, Launch, LaunchTestBase, IERC20Events {
     }
 
     function test_RevertIf_Withdraw_InvalidLaunchGroupStatus() public {
-        vm.startPrank(manager);
-        launch.setLaunchGroupStatus(testLaunchGroupId, LaunchGroupStatus.PAUSED);
-        vm.stopPrank();
+        // Create new launch group
+        bytes32 launchGroupId = bytes32(uint256(1));
+        _setupLaunchGroupWithStatus(launchGroupId, LaunchGroupStatus.PENDING);
 
         vm.startPrank(testWithdrawalAddress);
         vm.expectRevert(
             abi.encodeWithSelector(
-                InvalidLaunchGroupStatus.selector,
-                testLaunchGroupId,
-                LaunchGroupStatus.COMPLETED,
-                LaunchGroupStatus.PAUSED
+                InvalidLaunchGroupStatus.selector, launchGroupId, LaunchGroupStatus.COMPLETED, LaunchGroupStatus.PENDING
             )
         );
         // Withdraw
