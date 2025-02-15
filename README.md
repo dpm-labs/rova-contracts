@@ -22,6 +22,8 @@ The `LaunchGroupSettings` struct contains the settings for the launch group to a
 
 Each launch group can have a multiple accepted payment currencies. These are registered in a mapping of launch group id to currency address to currency config. Users will specify the currency they want to use when participating in a launch group and we will validate the requested token amount and payment amount against the configured token price per currency.
 
+See [Appendix: How to Calculate Token Price](#how-to-calculate-token-price) for more details on how we calculate the token price per currency.
+
 ### Launch Participation
 
 When a user participates in a launch group, Rova backend will generate a launch participation identifier that is unique to the user, launch group, and launch. This id will be used to identify the participation in all state-changing functions and across a launch groups' lifecycle.
@@ -130,4 +132,49 @@ $ cast <subcommand>
 $ forge --help
 $ anvil --help
 $ cast --help
+```
+
+## Appendix
+
+### How to Calculate Token Price
+
+Token price calculation based on the payment currency token, taking in account the project token decimals and currency token decimals.
+
+This is to ensure accurate accounting up to available decimals for how many tokens a person has purchased.
+
+#### Variables
+
+- **Project token decimals (`PTD`)**
+  - Example: $TOKEN is 8 decimals
+- **Currency token decimals (`CTD`)**
+  - Example: $USDC is 6 decimals
+- **Intended price conversion (`P`)**
+  - This is the intended readable conversion, not taking into account each token’s decimals
+  - Example: For “1 $TOKEN = 1.5 $USDC”, P would be 1.5
+
+#### Token Price Calculation
+
+Steps to calculate `tokenPriceBps`, which is the price of the project token per currency token.
+
+```
+tokenPriceBps = P * (10^CTD)
+```
+
+Example: 1 $TOKEN = 1.5 $USDC, where $USDC has 6 decimals and $TOKEN is the project token
+
+```
+P = 1.5
+CTD = 6
+tokenPriceBps = 1.5 * (10^6) = 1500000
+```
+
+#### Currency Amount Calculation
+
+Steps to calculate `currencyAmount`, which is the amount a user would pay in their currency of choice for a given `tokenAmount` of the project token.
+
+```
+tokenPriceBps = P * (10^CTD)
+maxBps = 10^PTD
+currencyAmount = (tokenPriceBps * tokenAmount) / maxBps
+currencyAmount = (P * (10^CTD) * tokenAmount) / (10^PTD)
 ```
