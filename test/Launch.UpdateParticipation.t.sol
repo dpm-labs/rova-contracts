@@ -7,6 +7,7 @@ import {Test} from "forge-std/Test.sol";
 import {LaunchTestBase} from "./LaunchTestBase.t.sol";
 import {Launch} from "../src/Launch.sol";
 import {
+    CancelParticipationRequest,
     LaunchGroupSettings,
     LaunchGroupStatus,
     ParticipationRequest,
@@ -290,6 +291,26 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
         vm.startPrank(user1);
         vm.expectRevert(
             abi.encodeWithSelector(ParticipationUpdatesNotAllowed.selector, launchGroupId, testLaunchParticipationId)
+        );
+        // Update participation
+        launch.updateParticipation(updateRequest, updateSignature);
+    }
+
+    function test_RevertIf_UpdateParticipation_ParticipationUpdatesNotAllowedIfCancelled() public {
+        // Cancel participation
+        CancelParticipationRequest memory cancelRequest = _createCancelParticipationRequest();
+        bytes memory cancelSignature = _signRequest(abi.encode(cancelRequest));
+        vm.startPrank(user1);
+        launch.cancelParticipation(cancelRequest, cancelSignature);
+
+        // Prepare update participation request
+        UpdateParticipationRequest memory updateRequest = _createUpdateParticipationRequest(2000);
+        bytes memory updateSignature = _signRequest(abi.encode(updateRequest));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ParticipationUpdatesNotAllowed.selector, testLaunchGroupId, testLaunchParticipationId
+            )
         );
         // Update participation
         launch.updateParticipation(updateRequest, updateSignature);
