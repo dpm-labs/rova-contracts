@@ -18,6 +18,17 @@ Since requests must be first "approved" by our backend, backend signer(s) with t
 
 The `LaunchGroupSettings` struct contains the settings for the launch group to allow for different launch structures. It also contains the status of the launch group to track launch group lifecycle. Since launch groups will need to be tracked in our backend, a launch group identifier from our backend is associated with each launch group registered within the `Launch` contract.
 
+#### Finalizes at Participation
+
+This is a setting in the `LaunchGroupSettings` struct that determines if user participation is considered complete during the `participate` function. It can only be updated before the launch group is active.
+
+When a launch group has `finalizesAtParticipation` set to `true`, the participation is considered complete and not updatable/cancellable. Users can participate again in the same launch group as long as they stay within the same launch group's allocation limits.
+
+When a launch group has `finalizesAtParticipation` set to `false`, the participation can be updated or cancelled until the launch group ends. Participation will be finalized manually by operators via the `finalizeWinners` function, which typically happens after the launch group particpation period ends (tracked by the `endsAt` timestamp).
+
+- If users want to update their participation amount, they can do so until the launch group ends via the `updateParticipation` function.
+- If users want to cancel their participation completely, they can do so until the launch group ends via the `cancelParticipation` function. If the participation is cancelled, the user is allowed to participate again in the same launch group via the `participate` function.
+
 ### Payment Currency
 
 Each launch group can have a multiple accepted payment currencies. These are registered in a mapping of launch group id to currency address to currency config. Users will specify the currency they want to use when participating in a launch group and we will validate the requested token amount and payment amount against the configured token price per currency.
@@ -118,6 +129,7 @@ Set `PRIVATE_KEY` in `.env` and run:
 
 ```shell
 $ forge script script/Deploy.s.sol:DeployScript --rpc-url <your_rpc_url> --broadcast
+
 ```
 
 ### Cast
