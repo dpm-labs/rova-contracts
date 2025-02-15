@@ -75,6 +75,9 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
         // Verify total unique participants by launch group
         assertEq(launch.getNumUniqueParticipantsByLaunchGroup(testLaunchGroupId), 1);
 
+        // Verify user tokens
+        assertEq(launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId), updateRequest.tokenAmount);
+
         vm.stopPrank();
     }
 
@@ -112,6 +115,9 @@ contract LaunchUpdateParticipationTest is Test, Launch, LaunchTestBase {
 
         // Verify total unique participants by launch group
         assertEq(launch.getNumUniqueParticipantsByLaunchGroup(testLaunchGroupId), 1);
+
+        // Verify user tokens
+        assertEq(launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId), updateRequest.tokenAmount);
 
         vm.stopPrank();
     }
