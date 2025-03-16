@@ -13,6 +13,21 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
     }
 
     /**
+     * @notice Test setLaunchId
+     */
+    function test_SetLaunchId() public {
+        bytes32 prevLaunchId = launch.launchId();
+        bytes32 newLaunchId = bytes32(uint256(1));
+        vm.startPrank(manager);
+        vm.expectEmit(true, true, true, true);
+        emit LaunchIdUpdated(newLaunchId, prevLaunchId);
+        // Set launch ID
+        launch.setLaunchId(newLaunchId);
+
+        assertEq(launch.launchId(), newLaunchId);
+    }
+
+    /**
      * @notice Test setLaunchGroupSettings
      */
     function test_SetLaunchGroupSettings() public {
