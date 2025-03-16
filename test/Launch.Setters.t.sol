@@ -34,7 +34,7 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
         LaunchGroupSettings memory settings = _setupLaunchGroup();
         settings.minTokenAmountPerUser = 1000 * 10 ** launch.tokenDecimals();
         settings.maxTokenAmountPerUser = 10000 * 10 ** launch.tokenDecimals();
-        settings.maxTokenAllocation = 1000000;
+        settings.maxTokenAllocation = 1000000 * 10 ** launch.tokenDecimals();
         settings.startsAt = block.timestamp + 1 days;
         settings.endsAt = block.timestamp + 2 days;
 
@@ -69,6 +69,29 @@ contract LaunchTest is Test, Launch, LaunchTestBase {
         vm.expectRevert(InvalidRequest.selector);
         // Setup launch group
         launch.setLaunchGroupSettings("differentLaunchGroupId", settings);
+    }
+
+    function test_RevertIf_SetLaunchGroupSettings_InvalidRequestInvalidPeriod() public {
+        LaunchGroupSettings memory settings = _setupLaunchGroup();
+        settings.startsAt = block.timestamp + 2 days;
+        settings.endsAt = block.timestamp + 1 days;
+
+        vm.startPrank(manager);
+        vm.expectRevert(InvalidRequest.selector);
+        // Set launch group settings
+        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
+    }
+
+    function test_RevertIf_SetLaunchGroupSettings_InvalidRequestMinTokenAmountPerUserGreaterThanMaxTokenAmountPerUser()
+        public
+    {
+        LaunchGroupSettings memory settings = _setupLaunchGroup();
+        settings.minTokenAmountPerUser = settings.maxTokenAmountPerUser + 1;
+
+        vm.startPrank(manager);
+        vm.expectRevert(InvalidRequest.selector);
+        // Set launch group settings
+        launch.setLaunchGroupSettings(testLaunchGroupId, settings);
     }
 
     function test_RevertIf_SetLaunchGroupSettings_InvalidRequestFinalizesAtParticipation() public {
