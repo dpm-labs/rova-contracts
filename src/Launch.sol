@@ -349,25 +349,26 @@ contract Launch is
         (, uint256 userTokenAmount) = userTokens.tryGet(request.userId);
         // If new requested token amount is less than old amount, handle refund
         if (prevInfo.currencyAmount > newCurrencyAmount) {
-            // Calculate refund amount
-            uint256 refundCurrencyAmount = prevInfo.currencyAmount - newCurrencyAmount;
             // Validate user new requested token amount is greater than min token amount per user
-            if (userTokenAmount - refundCurrencyAmount < settings.minTokenAmountPerUser) {
+            if (request.tokenAmount < settings.minTokenAmountPerUser) {
                 revert MinUserTokenAllocationNotReached(
                     request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
                 );
             }
+
+            // Calculate refund amount
+            uint256 refundCurrencyAmount = prevInfo.currencyAmount - newCurrencyAmount;
             // Transfer payment currency from contract to user
             IERC20(request.currency).safeTransfer(msg.sender, refundCurrencyAmount);
         } else if (newCurrencyAmount > prevInfo.currencyAmount) {
-            // Calculate additional payment amount
-            uint256 additionalCurrencyAmount = newCurrencyAmount - prevInfo.currencyAmount;
             // Validate user new requested token amount is within launch group user allocation limits
-            if (userTokenAmount + additionalCurrencyAmount > settings.maxTokenAmountPerUser) {
+            if (request.tokenAmount > settings.maxTokenAmountPerUser) {
                 revert MaxUserTokenAllocationReached(
                     request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
                 );
             }
+            // Calculate additional payment amount
+            uint256 additionalCurrencyAmount = newCurrencyAmount - prevInfo.currencyAmount;
             // Transfer payment currency from user to contract
             IERC20(request.currency).safeTransferFrom(msg.sender, address(this), additionalCurrencyAmount);
         }
