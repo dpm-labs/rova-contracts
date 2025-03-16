@@ -333,6 +333,10 @@ contract Launch is
         if (settings.finalizesAtParticipation || prevInfo.isFinalized) {
             revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.prevLaunchParticipationId);
         }
+        // Do not allow updates to cancelled participation
+        if (prevInfo.tokenAmount == 0 || prevInfo.currencyAmount == 0) {
+            revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.prevLaunchParticipationId);
+        }
 
         // Validate participation exists and user, requested currency match
         ParticipationInfo storage newInfo = launchGroupParticipations[request.newLaunchParticipationId];
@@ -422,6 +426,10 @@ contract Launch is
             revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.launchParticipationId);
         }
         if (info.isFinalized) {
+            revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.launchParticipationId);
+        }
+        // Do not allow updates to cancelled participation
+        if (info.tokenAmount == 0 || info.currencyAmount == 0) {
             revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.launchParticipationId);
         }
 

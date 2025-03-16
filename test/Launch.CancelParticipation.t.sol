@@ -233,6 +233,23 @@ contract LaunchCancelParticipationTest is Test, Launch, LaunchTestBase {
         launch.cancelParticipation(request, signature);
     }
 
+    function test_RevertIf_CancelParticipation_ParticipationUpdatesNotAllowedIfCancelled() public {
+        // Prepare cancel participation request
+        CancelParticipationRequest memory request = _createCancelParticipationRequest();
+        bytes memory signature = _signRequest(abi.encode(request));
+        vm.startPrank(user1);
+
+        // Cancel participation
+        launch.cancelParticipation(request, signature);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ParticipationUpdatesNotAllowed.selector, request.launchGroupId, request.launchParticipationId
+            )
+        );
+        // Cancel participation
+        launch.cancelParticipation(request, signature);
+    }
+
     function test_RevertIf_CancelParticipation_InvalidCancelParticipationRequestUserId() public {
         // Prepare cancel participation request
         CancelParticipationRequest memory request = _createCancelParticipationRequest();
