@@ -430,21 +430,8 @@ contract Launch is
             revert UserIdMismatch(info.userId, request.userId);
         }
 
-        // Get total tokens requested for user for launch group
-        EnumerableMap.Bytes32ToUintMap storage userTokens = _userTokensByLaunchGroup[request.launchGroupId];
-        (, uint256 userTokenAmount) = userTokens.tryGet(request.userId);
-        if (userTokenAmount - info.tokenAmount == 0) {
-            // If total tokens requested for user is the same as the cancelled participation, remove user from launch group
-            userTokens.remove(request.userId);
-        } else if (userTokenAmount - info.tokenAmount < settings.minTokenAmountPerUser) {
-            // Total tokens requested for user after cancellation must be greater than min token amount per user
-            revert MinUserTokenAllocationNotReached(
-                request.launchGroupId, request.userId, userTokenAmount, info.tokenAmount
-            );
-        } else {
-            // Subtract cancelled participation token amount from total tokens requested for user
-            userTokens.set(request.userId, userTokenAmount - info.tokenAmount);
-        }
+        // Remove user requested token amount from launch group
+        _userTokensByLaunchGroup[request.launchGroupId].remove(request.userId);
 
         // Transfer payment currency from contract to user
         uint256 refundCurrencyAmount = info.currencyAmount;

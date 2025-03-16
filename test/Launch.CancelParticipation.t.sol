@@ -41,7 +41,6 @@ contract LaunchCancelParticipationTest is Test, Launch, LaunchTestBase {
         ParticipationInfo memory info = launch.getParticipationInfo(cancelRequest.launchParticipationId);
         assertEq(info.tokenAmount, 1000 * 10 ** 18);
         assertEq(info.currencyAmount, 1000 * 10 ** 18);
-        uint256 initialUserTokenAmount = launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId);
         uint256 startingBalance = currency.balanceOf(user1);
 
         vm.startPrank(user1);
@@ -71,7 +70,7 @@ contract LaunchCancelParticipationTest is Test, Launch, LaunchTestBase {
 
         // Verify user tokens
         uint256 userTokenAmount = launch.getUserTokensByLaunchGroup(testLaunchGroupId, testUserId);
-        assertEq(userTokenAmount, initialUserTokenAmount - info.tokenAmount);
+        assertEq(userTokenAmount, 0);
 
         // Verify user ID is no longer in the launch group
         assertEq(launch.getLaunchGroupParticipantUserIds(testLaunchGroupId).length, 0);
