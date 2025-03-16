@@ -357,8 +357,6 @@ contract Launch is
                     request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
                 );
             }
-            // Update total tokens requested for user for launch group
-            userTokens.set(request.userId, userTokenAmount - refundCurrencyAmount);
             // Transfer payment currency from contract to user
             IERC20(request.currency).safeTransfer(msg.sender, refundCurrencyAmount);
         } else if (newCurrencyAmount > prevInfo.currencyAmount) {
@@ -370,12 +368,11 @@ contract Launch is
                     request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
                 );
             }
-            // Update total tokens requested for user for launch group
-            userTokens.set(request.userId, userTokenAmount + additionalCurrencyAmount);
             // Transfer payment currency from user to contract
             IERC20(request.currency).safeTransferFrom(msg.sender, address(this), additionalCurrencyAmount);
         }
-
+        // Update total tokens requested for user for launch group
+        userTokens.set(request.userId, request.tokenAmount);
         // Set participation details for user
         newInfo.currencyAmount = newCurrencyAmount;
         newInfo.currency = request.currency;
