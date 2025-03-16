@@ -340,6 +340,10 @@ contract Launch is
         if (settings.finalizesAtParticipation || prevInfo.isFinalized) {
             revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.prevLaunchParticipationId);
         }
+        // Do not allow updates to cancelled participation
+        if (prevInfo.tokenAmount == 0 || prevInfo.currencyAmount == 0) {
+            revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.prevLaunchParticipationId);
+        }
 
         // Validate participation exists and user, requested currency match
         ParticipationInfo storage newInfo = launchGroupParticipations[request.newLaunchParticipationId];
@@ -431,27 +435,18 @@ contract Launch is
         if (info.isFinalized) {
             revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.launchParticipationId);
         }
+        // Do not allow updates to cancelled participation
+        if (info.tokenAmount == 0 || info.currencyAmount == 0) {
+            revert ParticipationUpdatesNotAllowed(request.launchGroupId, request.launchParticipationId);
+        }
 
         // Validate userId is the same which also checks if participation exists
         if (request.userId != info.userId) {
             revert UserIdMismatch(info.userId, request.userId);
         }
 
-        // Get total tokens requested for user for launch group
-        EnumerableMap.Bytes32ToUintMap storage userTokens = _userTokensByLaunchGroup[request.launchGroupId];
-        (, uint256 userTokenAmount) = userTokens.tryGet(request.userId);
-        if (userTokenAmount - info.tokenAmount == 0) {
-            // If total tokens requested for user is the same as the cancelled participation, remove user from launch group
-            userTokens.remove(request.userId);
-        } else if (userTokenAmount - info.tokenAmount < settings.minTokenAmountPerUser) {
-            // Total tokens requested for user after cancellation must be greater than min token amount per user
-            revert MinUserTokenAllocationNotReached(
-                request.launchGroupId, request.userId, userTokenAmount, info.tokenAmount
-            );
-        } else {
-            // Subtract cancelled participation token amount from total tokens requested for user
-            userTokens.set(request.userId, userTokenAmount - info.tokenAmount);
-        }
+        // Remove user requested token amount from launch group
+        _userTokensByLaunchGroup[request.launchGroupId].remove(request.userId);
 
         // Transfer payment currency from contract to user
         uint256 refundCurrencyAmount = info.currencyAmount;
