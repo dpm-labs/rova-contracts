@@ -86,8 +86,6 @@ contract Launch is
     EnumerableMap.AddressToUintMap internal _withdrawableAmountByCurrency;
 
     error InvalidRequest();
-    error InvalidCurrency(bytes32 launchGroupId, address currency);
-    error InvalidCurrencyAmount(bytes32 launchGroupId, address currency, uint256 currencyAmount);
     error InvalidSignature();
     error ExpiredRequest(uint256 requestExpiresAt, uint256 currentTime);
     error ParticipationAlreadyExists(bytes32 launchParticipationId);
