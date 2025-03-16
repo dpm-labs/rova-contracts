@@ -445,12 +445,12 @@ contract Launch is
             revert UserIdMismatch(info.userId, request.userId);
         }
 
-        // Remove user requested token amount from launch group
-        _userTokensByLaunchGroup[request.launchGroupId].remove(request.userId);
-
         // Transfer payment currency from contract to user
         uint256 refundCurrencyAmount = info.currencyAmount;
         IERC20(info.currency).safeTransfer(info.userAddress, refundCurrencyAmount);
+
+        // Remove user requested token amount from launch group
+        _userTokensByLaunchGroup[request.launchGroupId].remove(request.userId);
 
         // Reset participation info
         info.tokenAmount = 0;
