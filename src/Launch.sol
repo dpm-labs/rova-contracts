@@ -362,14 +362,14 @@ contract Launch is
             // Transfer payment currency from contract to user
             IERC20(request.currency).safeTransfer(msg.sender, refundCurrencyAmount);
         } else if (newCurrencyAmount > prevInfo.currencyAmount) {
-            // Calculate additional payment amount
-            uint256 additionalCurrencyAmount = newCurrencyAmount - prevInfo.currencyAmount;
             // Validate user new requested token amount is within launch group user allocation limits
-            if (userTokenAmount + additionalCurrencyAmount > settings.maxTokenAmountPerUser) {
+            if (request.tokenAmount > settings.maxTokenAmountPerUser) {
                 revert MaxUserTokenAllocationReached(
                     request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
                 );
             }
+            // Calculate additional payment amount
+            uint256 additionalCurrencyAmount = newCurrencyAmount - prevInfo.currencyAmount;
             // Update total tokens requested for user for launch group
             userTokens.set(request.userId, userTokenAmount + additionalCurrencyAmount);
             // Transfer payment currency from user to contract
