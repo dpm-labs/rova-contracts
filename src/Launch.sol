@@ -196,6 +196,14 @@ contract Launch is
         if (_initialAdmin == address(0) || _withdrawalAddress == address(0)) {
             revert InvalidRequest();
         }
+        // Validate token decimals are less than or equal to 18
+        if (_tokenDecimals > 18) {
+            revert InvalidRequest();
+        }
+        // Validate launch ID is not zero
+        if (_launchId == bytes32(0)) {
+            revert InvalidRequest();
+        }
 
         // Grant initial admin default admin, manager, operator, and signer roles
         _grantRole(DEFAULT_ADMIN_ROLE, _initialAdmin);

@@ -44,6 +44,8 @@ abstract contract LaunchTestBase is Test, Launch {
     bytes32 public testLaunchParticipationId = "cm6o2sldi00003b74facm5z9n";
     bytes32 public testUserId = "cm6o2tm1300003b74dsss1s7q";
 
+    uint8 public testTokenDecimals = 18;
+
     function _setUpLaunch() public {
         vm.startPrank(admin.addr);
 
@@ -183,7 +185,9 @@ abstract contract LaunchTestBase is Test, Launch {
         address proxyAddress = UnsafeUpgrades.deployTransparentProxy(
             address(new Launch()),
             adminAddress,
-            abi.encodeWithSelector(Launch.initialize.selector, withdrawalAddress, testLaunchId, adminAddress, 18)
+            abi.encodeWithSelector(
+                Launch.initialize.selector, withdrawalAddress, testLaunchId, adminAddress, testTokenDecimals
+            )
         );
         launch = Launch(proxyAddress);
     }
