@@ -349,14 +349,14 @@ contract Launch is
         (, uint256 userTokenAmount) = userTokens.tryGet(request.userId);
         // If new requested token amount is less than old amount, handle refund
         if (prevInfo.currencyAmount > newCurrencyAmount) {
-            // Calculate refund amount
-            uint256 refundCurrencyAmount = prevInfo.currencyAmount - newCurrencyAmount;
             // Validate user new requested token amount is greater than min token amount per user
-            if (userTokenAmount - refundCurrencyAmount < settings.minTokenAmountPerUser) {
+            if (request.tokenAmount < settings.minTokenAmountPerUser) {
                 revert MinUserTokenAllocationNotReached(
                     request.launchGroupId, request.userId, userTokenAmount, request.tokenAmount
                 );
             }
+            // Calculate refund amount
+            uint256 refundCurrencyAmount = prevInfo.currencyAmount - newCurrencyAmount;
             // Update total tokens requested for user for launch group
             userTokens.set(request.userId, userTokenAmount - refundCurrencyAmount);
             // Transfer payment currency from contract to user
