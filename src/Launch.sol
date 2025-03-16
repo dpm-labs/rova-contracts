@@ -108,6 +108,11 @@ contract Launch is
     error InvalidWinner(bytes32 launchParticipationId, bytes32 userId);
     error InvalidWithdrawalAmount(uint256 expectedBalance, uint256 actualBalance);
 
+    /// @notice Event for initialize
+    event Initialized(
+        address indexed initialAdmin, address indexed withdrawalAddress, bytes32 indexed launchId, uint8 tokenDecimals
+    );
+
     /// @notice Event for launch ID update
     event LaunchIdUpdated(bytes32 indexed launchId, bytes32 indexed prevLaunchId);
 
@@ -206,6 +211,8 @@ contract Launch is
         withdrawalAddress = _withdrawalAddress;
         launchId = _launchId;
         tokenDecimals = _tokenDecimals;
+
+        emit Initialized(_initialAdmin, _withdrawalAddress, _launchId, _tokenDecimals);
     }
 
     /// @notice Participate in a launch group

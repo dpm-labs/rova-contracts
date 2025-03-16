@@ -8,8 +8,13 @@ import {Launch} from "../src/Launch.sol";
 
 contract LaunchInitializeTest is Test, Launch, LaunchTestBase {
     function test_Initialize() public {
+        vm.expectEmit(true, true, true, true);
+        emit Initialized(admin.addr, testWithdrawalAddress, testLaunchId, 18);
+
+        // Initialize launch
         _initializeLaunch(admin.addr, testWithdrawalAddress);
 
+        // Verify initialization
         assertEq(launch.launchId(), testLaunchId);
         assertEq(launch.withdrawalAddress(), testWithdrawalAddress);
         assertTrue(launch.hasRole(launch.DEFAULT_ADMIN_ROLE(), admin.addr));
