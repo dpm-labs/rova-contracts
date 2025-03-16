@@ -108,6 +108,9 @@ contract Launch is
     error InvalidWinner(bytes32 launchParticipationId, bytes32 userId);
     error InvalidWithdrawalAmount(uint256 expectedBalance, uint256 actualBalance);
 
+    /// @notice Event for launch ID update
+    event LaunchIdUpdated(bytes32 indexed launchId, bytes32 indexed prevLaunchId);
+
     /// @notice Event for launch group creation
     event LaunchGroupCreated(bytes32 indexed launchGroupId);
 
@@ -770,7 +773,9 @@ contract Launch is
     /// @notice Set launch identifier
     /// @dev This will typically not be used unless there is a mistake during launch creation
     function setLaunchId(bytes32 _launchId) external onlyRole(MANAGER_ROLE) {
+        bytes32 prevLaunchId = launchId;
         launchId = _launchId;
+        emit LaunchIdUpdated(launchId, prevLaunchId);
     }
 
     /// @notice Set launch group status
