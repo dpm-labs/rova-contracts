@@ -18,7 +18,7 @@ import {
 
 contract MockERC20 is ERC20 {
     constructor() ERC20("Mock Token", "MTK") {
-        _mint(msg.sender, 1000000 * 10 ** 18);
+        _mint(msg.sender, 1000000 * 10 ** decimals());
     }
 }
 
@@ -74,7 +74,7 @@ abstract contract LaunchTestBase is Test, Launch {
         returns (LaunchGroupSettings memory)
     {
         CurrencyConfig memory currencyConfig =
-            CurrencyConfig({tokenPriceBps: 1 * 10 ** currency.decimals(), isEnabled: true});
+            CurrencyConfig({tokenPriceBps: uint248(1 * 10 ** currency.decimals()), isEnabled: true});
         LaunchGroupSettings memory settings = LaunchGroupSettings({
             finalizesAtParticipation: false,
             startsAt: block.timestamp,

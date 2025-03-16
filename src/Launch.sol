@@ -247,7 +247,7 @@ contract Launch is
         _validateRequestSignature(keccak256(abi.encode(request)), signature);
 
         // Validate payment currency is enabled for launch group
-        uint256 tokenPriceBps = _validateCurrency(request.launchGroupId, request.currency);
+        uint248 tokenPriceBps = _validateCurrency(request.launchGroupId, request.currency);
 
         // Do not allow replay of launch participation ID
         if (launchGroupParticipations[request.launchParticipationId].userId != bytes32(0)) {
@@ -341,7 +341,7 @@ contract Launch is
         // Validate request signature is from signer role
         _validateRequestSignature(keccak256(abi.encode(request)), signature);
         // Validate payment currency is enabled for launch group
-        uint256 tokenPriceBps = _validateCurrency(request.launchGroupId, request.currency);
+        uint248 tokenPriceBps = _validateCurrency(request.launchGroupId, request.currency);
 
         ParticipationInfo storage prevInfo = launchGroupParticipations[request.prevLaunchParticipationId];
         // If launch group finalizes at participation, the participation is considered complete and not updatable
@@ -602,7 +602,7 @@ contract Launch is
     }
 
     /// @notice Calculate currency payment amount based on bps and token amount
-    function _calculateCurrencyAmount(uint256 tokenPriceBps, uint256 tokenAmount) internal view returns (uint256) {
+    function _calculateCurrencyAmount(uint248 tokenPriceBps, uint256 tokenAmount) internal view returns (uint256) {
         return Math.mulDiv(tokenPriceBps, tokenAmount, 10 ** tokenDecimals);
     }
 
@@ -672,7 +672,7 @@ contract Launch is
 
     /// @notice Validate payment currency is enabled for a launch group
     /// @dev This returns the token price bps for the currency to reduce reads to calculate required currency amount
-    function _validateCurrency(bytes32 _launchGroupId, address _currency) private view returns (uint256) {
+    function _validateCurrency(bytes32 _launchGroupId, address _currency) private view returns (uint248) {
         CurrencyConfig memory currencyConfig = _launchGroupCurrencies[_launchGroupId][_currency];
         if (!currencyConfig.isEnabled) {
             revert InvalidRequest();
