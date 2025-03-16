@@ -687,6 +687,16 @@ contract Launch is
         }
     }
 
+    /// @notice Validate launch group settings
+    function _validateLaunchGroupSettings(LaunchGroupSettings calldata settings) private pure {
+        if (settings.startsAt >= settings.endsAt) {
+            revert InvalidRequest();
+        }
+        if (settings.minTokenAmountPerUser > settings.maxTokenAmountPerUser) {
+            revert InvalidRequest();
+        }
+    }
+
     /// @notice Validate launch group status transition
     /// @dev Status changes to pending are not allowed since other statuses can involve state changes
     /// @dev Status changes from completed are not allowed since it is the terminal state
@@ -714,6 +724,10 @@ contract Launch is
         if (_launchGroups.contains(launchGroupId)) {
             revert InvalidRequest();
         }
+
+        // Validate launch group settings
+        _validateLaunchGroupSettings(settings);
+
         // Validate initial currency config
         _validateCurrencyConfig(initialCurrencyConfig);
 
@@ -764,6 +778,9 @@ contract Launch is
         if (!_launchGroups.contains(launchGroupId)) {
             revert InvalidRequest();
         }
+        // Validate launch group settings
+        _validateLaunchGroupSettings(settings);
+
         // Validate status transition
         LaunchGroupSettings memory prevSettings = launchGroupSettings[launchGroupId];
         _validateStatusTransition(prevSettings.status, settings.status);
