@@ -31,7 +31,7 @@ struct LaunchGroupSettings {
 /// @param tokenPriceBps The price of the sale token in this currency in basis points.
 /// @param isEnabled Whether this currency is accepted.
 struct CurrencyConfig {
-    uint256 tokenPriceBps;
+    uint248 tokenPriceBps;
     bool isEnabled;
 }
 
