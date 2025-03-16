@@ -510,8 +510,8 @@ contract Launch is
     /// @param launchParticipationIds Launch participation ids to process refunds for
     function batchRefund(bytes32 launchGroupId, bytes32[] calldata launchParticipationIds)
         external
-        onlyRole(OPERATOR_ROLE)
         nonReentrant
+        onlyRole(OPERATOR_ROLE)
         whenNotPaused
         onlyLaunchGroupStatus(launchGroupId, LaunchGroupStatus.COMPLETED)
     {
@@ -530,8 +530,8 @@ contract Launch is
     /// @param winnerLaunchParticipationIds Launch participation ids to finalize as winners
     function finalizeWinners(bytes32 launchGroupId, bytes32[] calldata winnerLaunchParticipationIds)
         external
-        onlyRole(OPERATOR_ROLE)
         nonReentrant
+        onlyRole(OPERATOR_ROLE)
         onlyLaunchGroupStatus(launchGroupId, LaunchGroupStatus.ACTIVE)
     {
         // Validate launch group does not finalize at participation
